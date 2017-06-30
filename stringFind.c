@@ -1,6 +1,6 @@
 #include<stdio.h>
 #include<string.h>
-
+int count = 0;
 void payloadFind(const char* payload, const char* key, const char* replacement) {
 	//Location of the key
 	char *loc;
@@ -17,6 +17,7 @@ void payloadFind(const char* payload, const char* key, const char* replacement) 
 	strcat(temp, replacement);
 	//Reassign payload
 	payload = temp;
+	count++;
 	printf("%s", payload);
 }	
 
