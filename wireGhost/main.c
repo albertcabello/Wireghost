@@ -145,39 +145,43 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
     int size_tcp;
     int size_payload;
 
-    /* define ethernet header */
-    ethernet = (struct sniff_ethernet*)(packet);
-    
-    /* define/compute ip header offset */
-    ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
-    size_ip = IP_HL(ip)*4;
-    if (size_ip < 20) {
-        printf("   * Invalid IP header length: %u bytes\n", size_ip);
-        return;
-    }
-
-    /* define/compute tcp header offset */
-    tcp = (struct sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
-    size_tcp = TH_OFF(tcp)*4;
-    if (size_tcp < 20) {
-        printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
-        return;
-    }
-    
-    /* define/compute tcp payload (segment) offset */
-    payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
-    
-    /* compute tcp payload (segment) size */
-    size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
-    
-    //Inserted code ends
     struct ether_header * eptr = (struct ether_header *) packet;
     u_int16_t type = ntohs(eptr->ether_type);
     
     if(type == ETHERTYPE_IP) {/* handle IP packet */
+        //Inserted Code
+        /* define ethernet header */
+        ethernet = (struct sniff_ethernet*)(packet);
+        
+        /* define/compute ip header offset */
+        ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
+        size_ip = IP_HL(ip)*4;
+        if (size_ip < 20) {
+            printf("   * Invalid IP header length: %u bytes\n", size_ip);
+            return;
+        }
+        
+        /* define/compute tcp header offset */
+        tcp = (struct sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
+        size_tcp = TH_OFF(tcp)*4;
+        if (size_tcp < 20) {
+            printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
+            return;
+        }
+        
+        /* define/compute tcp payload (segment) offset */
+        payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
+        
+        /* compute tcp payload (segment) size */
+        size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
+        //Inserted code ends
         
         u_char* modifiedPacket = (u_char*) malloc((2 * *(packet + 17) + 14) * sizeof(u_char));
         memcpy(modifiedPacket, packet, (*(packet + 17) + 14));
+        
+        
+        
+        
         
         /*
         int j = *(packet + 17) + 14;
@@ -233,8 +237,37 @@ int in_ack_table(char * searchsource, char * searchdest){
     return -1;
 }
 
+void add_table_element(char * src, char * dst){
+    arraylist_add(&source, src);
+    arraylist_add(&destination, dst);
+    insertArray(&ack_table, 0);
+    insertArray(&seq_table, 0);
+    
+}
+
+void add_table_offset(int index, int offset){
+    int oldvalue=getArray(&ack_table, offset);
+    updateArray(&ack_table, index, (oldvalue-offset));
+    int oldvalue1=getArray(&seq_table, offset);
+    updateArray(&seq_table, index, (oldvalue1+offset));
+}
 
 
+char * computeSourceKey(const char * packet){
+    return "a";
+}
+char * computeDestKey(const char * packet){
+   return "a";
+}
+void update_keys(char * sourcekey, char * destkey){
+    if (in_ack_table(sourcekey, destkey)==-1){
+        add_table_element(sourcekey, destkey);
+    }
+    if (in_ack_table(destkey, sourcekey)==-1){
+        add_table_element(destkey, sourcekey);
+    }
+    
+}
 
 /* handle ethernet packets, much of this code gleaned from
  * print-ether.c from tcpdump source
@@ -255,8 +288,8 @@ int main(int argc,char **argv)
     bpf_u_int32 netp;           /* ip                        */
     u_char* args = NULL;
     
-    char* find = argv[2];
-    char* replace = argv[3];
+    char* find = argv[3];
+    char* replace = argv[4];
     int difference = strlen(find)-strlen(replace);
     
     /* Options must be passed in as a string because I am lazy */
