@@ -1,28 +1,28 @@
 #include<stdio.h>
 #include<string.h>
+#include <stdlib.h>
 int count = 0;
 void payloadFind(const char* payload, const char* key, const char* replacement) {
-	//Location of the key
-	char *loc;
-	//If the key is not in the payload, just return the payload
-	if (!(loc=strstr(payload, key))) return;
-	//Temporary array to hold the string after replacement, needs to be long enough to contain the entire new string
-	//So the original string minus what you're replacing plus the replacement length is exactly long enough
-	char temp[strlen(payload)-strlen(key)+strlen(replacement)];
-	//Add null character to prevent garbage characters
-	temp[loc-payload] = '\0';
-	//Copy payload up to substring
-	strncpy(temp, payload, loc-payload);
-	//Concatenate the replacement string
-	strcat(temp, replacement);
-	//Reassign payload
-	payload = temp;
-	count++;
-	printf("%s", payload);
+	char * lastOccurence = (char *)payload;
+	char * nextOccurence = strstr(payload, key);
+	char temp[1500];
+	int seen = 0;
+	while (nextOccurence != NULL) {
+		seen++;
+		count++;
+//		temp = realloc(temp, strlen(payload)-seen*(strlen(key)+strlen(replacement)));
+		strncat(temp, lastOccurence, nextOccurence-lastOccurence);
+		strcat(temp, replacement);
+		lastOccurence = nextOccurence+strlen(key);
+		nextOccurence = strstr(nextOccurence+1, key);
+	}
+//	temp = realloc(temp, (strlen(payload)-seen*(strlen(key)+strlen(replacement))+strlen(lastOccurence)));
+	strcat(temp, lastOccurence);
+	printf("%s", temp);
 }	
 
-
 int main() {
-	payloadFind("abcd", "abcd", "efghijk");
+	payloadFind("abccdebc", "abccdebc", "ghzxxxx");
 	return 0;
 }
+
