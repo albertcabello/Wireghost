@@ -18,7 +18,7 @@ void payloadFind(const char* payload, const char* key, const char* replacement) 
 	}
 //	temp = realloc(temp, (strlen(payload)-seen*(strlen(key)+strlen(replacement))+strlen(lastOccurence)));
 	strcat(temp, lastOccurence);
-	printf("%s", temp);
+	payload = temp;
 }	
 
 int main() {
