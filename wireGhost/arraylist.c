@@ -104,6 +104,9 @@ void freeArray(Array *a) {
     a->array = NULL;
     a->used = a->size = 0;
 }
+void updateArray(Array *a, int index, int newValue){
+    a->array[index]=newValue;
+}
 
 
 

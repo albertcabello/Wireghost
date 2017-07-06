@@ -20,6 +20,7 @@ extern void freeArray(Array *a);
 extern int contains(Array *a, int element);
 extern size_t size(Array *a);
 extern int getArray(Array *a, int index);
+extern void updateArray(Array *a, int index, int newValue);
 extern void arraylist_initial(struct arraylist *list);
 extern int arraylist_get_size(const struct arraylist list);
 extern value_type* arraylist_get_data_collection(const struct arraylist list);
