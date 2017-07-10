@@ -4,10 +4,10 @@ DEPS = arraylist.h
 OBJ = main.o arraylist.o
 
 %.o: %.c $(DEPS)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) -c -o $@ $< $(CFLAGS)
 
 main: $(OBJ)
-	gcc $(CFLAGS) -o $@ $^
+	gcc -o $@ $^ $(CFLAGS)
 
 clean:
 	rm -f $(OBJ) main
