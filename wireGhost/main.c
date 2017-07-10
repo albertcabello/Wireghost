@@ -21,6 +21,8 @@ Array ack_table; //This is the table that will store the acknoledgment numbers
 Array seq_table; //This is the table that will store sequence numbers
 struct arraylist source; //These are to be used in conjunction with the above
 struct arraylist destination;
+char errbuf[PCAP_ERRBUF_SIZE];
+
 
 struct sniff_ip {
     u_char  ip_vhl;                 /* version << 4 | header length >> 2 */
@@ -78,7 +80,7 @@ int count = 0;
 void payloadFind(const char* payload, const char* key, const char* replacement) {
     char * lastOccurence = (char *)payload;
     char * nextOccurence = strstr(payload, key);
-    char temp[1500];
+    char temp[3000];
     int seen = 0;
     while (nextOccurence != NULL) {
         seen++;
@@ -133,9 +135,9 @@ uint16_t ip_checksum(void* vdata,size_t length) {
 //returns index if pair is in ack table and -1 if value is not
 int in_ack_table(char * searchsource, char * searchdest){
     Array appinsrc;
-    initArray(&appinsrc, 0);
+    initArray(&appinsrc, 2);
     Array appindest;
-    initArray(&appindest,0);
+    initArray(&appindest,2);
     int i = 0;
     for(;i<arraylist_get_size(source);i++){
         if(strcmp(source.data[i], searchsource) == 0) {
@@ -155,11 +157,14 @@ int in_ack_table(char * searchsource, char * searchdest){
 }
 
 void add_table_element(char * src, char * dst){
+    printf("these\n");
     arraylist_add(&source, src);
     arraylist_add(&destination, dst);
-    insertArray(&ack_table, 0);
+    printf("or these\n");
     insertArray(&seq_table, 0);
-    
+    printf("is it the parenthesis\n");
+    insertArray(&ack_table, 0);
+    printf("or those\n");
 }
 
 void add_table_offset(int index, int offset){
@@ -201,18 +206,25 @@ char * computeDestKey(const u_char * packet){
 
 
 void update_keys(char * sourcekey, char * destkey){
-    if (in_ack_table(sourcekey, destkey)==-1){
+    printf("is it the all\n");
+    if (in_ack_table(sourcekey, destkey)==(-1)){
+        printf("is it the in_ack_tablecall\n");
         add_table_element(sourcekey, destkey);
+        printf("wait\n");
     }
-    if (in_ack_table(destkey, sourcekey)==-1){
+    printf("appears not \n");
+    if (in_ack_table(destkey, sourcekey)==(-1)){
+        printf("j");
         add_table_element(destkey, sourcekey);
+        printf("k");
     }
+    printf("appears what \n");
     
 }
 /* Callback function which modifies the pacet */
 void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* packet)
 {
-    printf("entered callback");
+    printf("entered callback\n");
     /* declare pointers to packet headers */
     const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
     const struct sniff_ip *ip;              /* The IP header */
@@ -235,7 +247,7 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
     u_int16_t type = ntohs(eptr->ether_type);
     
     if(type == ETHERTYPE_IP) {/* handle IP packet */
-        printf("entered ethernet");
+        printf("entered ethernet\n");
         /* define ethernet header */
         ethernet = (struct sniff_ethernet*)(packet);
         
@@ -256,43 +268,48 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
             printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
             return;
         }
-        printf("about to copy");
+        printf("about to copy\n");
         /*
         u_char* modifiedPacket = (u_char*) malloc((2 * *(packet + 17) + 14) * sizeof(u_char));
         memcpy(modifiedPacket, packet, (*(packet + 17) + 14));
          */
-        u_char* modifiedPacket;
+        u_char* modifiedPacket = malloc(lengthPacket*sizeof(u_char));
         memcpy(modifiedPacket, packet, lengthPacket);
-        printf("copied");
-        struct ether_header * eptr2 = (struct ether_header *) packet;
+        printf("copied\n");
+        struct ether_header * eptr2 = (struct ether_header *) modifiedPacket;
         ethernet2 = (struct sniff_ethernet*)(modifiedPacket);
         ip2 = (struct sniff_ip*)(modifiedPacket + SIZE_ETHERNET);
         size_ip2 = IP_HL(ip2)*4;
         tcp2 = (struct sniff_tcp*)(modifiedPacket + SIZE_ETHERNET + size_ip2);
-        
+
         /* define/compute tcp payload (segment) offset */
         payload = (u_char *)(modifiedPacket + SIZE_ETHERNET + size_ip2 + size_tcp2);
         
         char * key1 = computeSourceKey(modifiedPacket);
         char * key2 = computeDestKey(modifiedPacket);
+        printf("odds we got this far\n");
         update_keys(key1, key2);
         update_keys(key2, key1);
+        printf("a\n");
         int index = in_ack_table(key1, key2);
         int seqoff = getArray(&seq_table, index);
         int ackoff = getArray(&ack_table, index);
+        printf("it would appear my tables don't break shit\n");
 
         //copies a packet and modifies the TCP acknowledgement and sequence numbers;
         long newseq=(tcp2->th_seq)+seqoff; //Uses a long since a long is 4 bytes
         long newack=(tcp2->th_ack)+ackoff;
         *(modifiedPacket+SIZE_ETHERNET+size_ip2+4)=newseq;
         *(modifiedPacket+SIZE_ETHERNET+size_ip2+4)=newack;
-        
-        
+        printf("if this doesn't break it i'll shit my pants\n");
 
         //update payload
-        payloadFind(payload, find, replace);
+        //payloadFind(payload, find, replace);
+        printf("you fucker\n");
+
         int replacements = count;
         count = 0;
+        replacements=0;
         //update table
         int total_offset = offset * replacements;
         add_table_offset(index, total_offset);
@@ -314,15 +331,17 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
         int packetsize = *(modifiedPacket+2+ 14) + total_offset;
         printf("about to send");
         if(pcap_sendpacket(descr, modifiedPacket, packetsize) < 0){//to send the packet, you must specify the interface, the packet, and the size of the packet
+            pcap_perror(descr,errbuf);
+            printf("%s",errbuf);
             printf("packet not successfully sent");
         }
-    }
+    }/*
     else{
         printf("not ethernet");
         if(pcap_sendpacket(descr, packet, pkthdr->len) < 0){
             printf("packet not successfully sent");
         }
-    }
+    }*/
 }
 
 
@@ -331,14 +350,14 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
  */
 int main(int argc,char **argv)
 {
+    printf("if this doesnt i swear to god\n");
     arraylist_initial(&source);
     arraylist_initial(&destination);
-    initArray((&ack_table), 0);
-    initArray(&seq_table, 0);
+    initArray((&ack_table), 2);
+    initArray(&seq_table, 2);
 
 
     char *dev;
-    char errbuf[PCAP_ERRBUF_SIZE];
     
     struct bpf_program fp;      /* hold compiled filter expression     */
     bpf_u_int32 maskp;          /* subnet mask               */
