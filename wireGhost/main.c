@@ -18,9 +18,9 @@
 #define IP_HL(ip)               (((ip)->ip_vhl) & 0x0f)
 #define IP_V(ip)                (((ip)->ip_vhl) >> 4)
 
-Array ack_table;
-Array seq_table;
-struct arraylist source;
+Array ack_table; //This is the table that will store the acknoledgment numbers
+Array seq_table; //This is the table that will store sequence numbers
+struct arraylist source; //These are to be used in conjunction with the above
 struct arraylist destination;
 
 struct sniff_ip {
@@ -69,58 +69,58 @@ struct sniff_tcp {
 
 
 pcap_t* descr;
+int offset;
+char * replace;
+char * find;
 
 
+int count = 0;
+
+void payloadFind(const char* payload, const char* key, const char* replacement) {
+    char * lastOccurence = (char *)payload;
+    char * nextOccurence = strstr(payload, key);
+    char temp[1500];
+    int seen = 0;
+    while (nextOccurence != NULL) {
+        seen++;
+        count++;
+        //		temp = realloc(temp, strlen(payload)-seen*(strlen(key)+strlen(replacement)));
+        strncat(temp, lastOccurence, nextOccurence-lastOccurence);
+        strcat(temp, replacement);
+        lastOccurence = nextOccurence+strlen(key);
+        nextOccurence = strstr(nextOccurence+1, key);
+    }
+    //	temp = realloc(temp, (strlen(payload)-seen*(strlen(key)+strlen(replacement))+strlen(lastOccurence)));
+    strcat(temp, lastOccurence);
+    payload = temp;
+}
 
 
-
-
-uint16_t ip_checksum(unsigned char* vdata,size_t length) {
+uint16_t ip_checksum(void* vdata,size_t length) {
     // Cast the data pointer to one that can be indexed.
-    unsigned char* data=(unsigned char*)vdata;
+    char* data=(char*)vdata;
     
     // Initialise the accumulator.
-    uint64_t acc=0xffff;
+    uint32_t acc=0xffff;
     
-    // Handle any partial block at the start of the data.
-    unsigned int offset=((uintptr_t)data)&3;
-    if (offset) {
-        size_t count=4-offset;
-        if (count>length) count=length;
-        uint32_t word=0;
-        memcpy(offset+(char*)&word,data,count);
-        acc+=ntohl(word);
-        data+=count;
-        length-=count;
+    // Handle complete 16-bit blocks.
+    for (size_t i=0;i+1<length;i+=2) {
+        uint16_t word;
+        memcpy(&word,data+i,2);
+        acc+=ntohs(word);
+        if (acc>0xffff) {
+            acc-=0xffff;
+        }
     }
-    
-    // Handle any complete 32-bit blocks.
-    char* data_end=data+(length&~3);
-    while (data!=data_end) {
-        uint32_t word;
-        memcpy(&word,data,4);
-        acc+=ntohl(word);
-        data+=4;
-    }
-    length&=3;
     
     // Handle any partial block at the end of the data.
-    if (length) {
-        uint32_t word=0;
-        memcpy(&word,data,length);
-        acc+=ntohl(word);
-    }
-    
-    // Handle deferred carries.
-    acc=(acc&0xffffffff)+(acc>>32);
-    while (acc>>16) {
-        acc=(acc&0xffff)+(acc>>16);
-    }
-    
-    // If the data began at an odd byte address
-    // then reverse the byte order to compensate.
-    if (offset&1) {
-        acc=((acc&0xff00)>>8)|((acc&0x00ff)<<8);
+    if (length&1) {
+        uint16_t word=0;
+        memcpy(&word,data+length-1,1);
+        acc+=ntohs(word);
+        if (acc>0xffff) {
+            acc-=0xffff;
+        }
     }
     
     // Return the checksum in network byte order.
@@ -131,88 +131,6 @@ uint16_t ip_checksum(unsigned char* vdata,size_t length) {
 
 
 
-/* Callback function which modifies the pacet */
-void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* packet)
-{
-
-    /* declare pointers to packet headers */
-    const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
-    const struct sniff_ip *ip;              /* The IP header */
-    const struct sniff_tcp *tcp;            /* The TCP header */
-    const char *payload;                    /* Packet payload */
-    
-    int size_ip;
-    int size_tcp;
-    int size_payload;
-
-    struct ether_header * eptr = (struct ether_header *) packet;
-    u_int16_t type = ntohs(eptr->ether_type);
-    
-    if(type == ETHERTYPE_IP) {/* handle IP packet */
-        //Inserted Code
-        /* define ethernet header */
-        ethernet = (struct sniff_ethernet*)(packet);
-        
-        /* define/compute ip header offset */
-        ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
-        size_ip = IP_HL(ip)*4;
-        if (size_ip < 20) {
-            printf("   * Invalid IP header length: %u bytes\n", size_ip);
-            return;
-        }
-        
-        /* define/compute tcp header offset */
-        tcp = (struct sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
-        size_tcp = TH_OFF(tcp)*4;
-        if (size_tcp < 20) {
-            printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
-            return;
-        }
-        
-        /* define/compute tcp payload (segment) offset */
-        payload = (u_char *)(packet + SIZE_ETHERNET + size_ip + size_tcp);
-        
-        /* compute tcp payload (segment) size */
-        size_payload = ntohs(ip->ip_len) - (size_ip + size_tcp);
-        //Inserted code ends
-        
-        u_char* modifiedPacket = (u_char*) malloc((2 * *(packet + 17) + 14) * sizeof(u_char));
-        memcpy(modifiedPacket, packet, (*(packet + 17) + 14));
-        
-        
-        
-        
-        
-        /*
-        int j = *(packet + 17) + 14;
-        for(; j < 2 * *(packet + 17) + 14; j++){//Increase the size of the payload
-            modifiedPacket[j] = 0;
-        }
-        */
-        
-        
-        unsigned char* IP = (char*) malloc(sizeof(char) * 20);
-        for(int j = 14; j < 20 + 14; j++){
-            IP[j - 14] = modifiedPacket[j];
-        }
-        IP[3] = 2 * IP[3];
-        *(modifiedPacket + 3 + 14) = IP[3];
-        *(IP + 10) = 0x00;
-        *(IP + 11) = 0x00;
-        short checksum = ip_checksum(IP, 20);
-        *(modifiedPacket + 10 + 14) = checksum & 0xff;
-        *(modifiedPacket + 11 + 14) = ((checksum >> 8) & 0xff);
-        int packetsize = (modifiedPacket[3 + 14] ) + 14;
-        if(pcap_sendpacket(descr, modifiedPacket, packetsize) < 0){//to send the packet, you must specify the interface, the packet, and the size of the packet
-            printf("packet not successfully send");
-        }
-    }
-    else{
-        if(pcap_sendpacket(descr, packet, pkthdr->len) < 0){
-            printf("packet not successfully sent");
-        }
-    }
-}
 //returns index if pair is in ack table and -1 if value is not
 int in_ack_table(char * searchsource, char * searchdest){
     Array appinsrc;
@@ -253,12 +171,36 @@ void add_table_offset(int index, int offset){
 }
 
 
-char * computeSourceKey(const char * packet){
-    return "a";
+char * computeSourceKey(const u_char * packet){
+    
+    /* declare pointers to packet headers */
+    const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
+    const struct sniff_ip *ip;              /* The IP header */
+
+    
+    /* define ethernet header */
+    ethernet = (struct sniff_ethernet*)(packet);
+    
+    /* define/compute ip header offset */
+    ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
+    return inet_ntoa(ip->ip_src);
 }
-char * computeDestKey(const char * packet){
-   return "a";
+
+
+char * computeDestKey(const u_char * packet){
+    const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
+    const struct sniff_ip *ip;              /* The IP header */
+    
+    
+    /* define ethernet header */
+    ethernet = (struct sniff_ethernet*)(packet);
+    
+    /* define/compute ip header offset */
+    ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
+    return inet_ntoa(ip->ip_dst);
 }
+
+
 void update_keys(char * sourcekey, char * destkey){
     if (in_ack_table(sourcekey, destkey)==-1){
         add_table_element(sourcekey, destkey);
@@ -268,6 +210,117 @@ void update_keys(char * sourcekey, char * destkey){
     }
     
 }
+/* Callback function which modifies the pacet */
+void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* packet)
+{
+    
+    /* declare pointers to packet headers */
+    const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
+    const struct sniff_ip *ip;              /* The IP header */
+    const struct sniff_tcp *tcp;            /* The TCP header */
+    const char *payload;                    /* Packet payload */
+    const struct sniff_ethernet *ethernet2;  /* The ethernet header [1] */
+    const struct sniff_ip *ip2;              /* The IP header */
+    const struct sniff_tcp *tcp2;            /* The TCP header */
+    const char *payload2;                    /* Packet payload */
+    
+    int size_ip;
+    int size_tcp;
+    int size_payload;
+    
+    int size_ip2;
+    int size_tcp2;
+    int size_payload2;
+    
+    struct ether_header * eptr = (struct ether_header *) packet;
+    u_int16_t type = ntohs(eptr->ether_type);
+    
+    if(type == ETHERTYPE_IP) {/* handle IP packet */
+        /* define ethernet header */
+        ethernet = (struct sniff_ethernet*)(packet);
+        
+        /* define/compute ip header offset */
+        ip = (struct sniff_ip*)(packet + SIZE_ETHERNET);
+        
+        size_ip = IP_HL(ip)*4;
+        int lengthPacket =ip->ip_len;
+        if (size_ip < 20) {
+            printf("   * Invalid IP header length: %u bytes\n", size_ip);
+            return;
+        }
+        
+        /* define/compute tcp header offset */
+        tcp = (struct sniff_tcp*)(packet + SIZE_ETHERNET + size_ip);
+        size_tcp = TH_OFF(tcp)*4;
+        if (size_tcp < 20) {
+            printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
+            return;
+        }
+        /*
+        u_char* modifiedPacket = (u_char*) malloc((2 * *(packet + 17) + 14) * sizeof(u_char));
+        memcpy(modifiedPacket, packet, (*(packet + 17) + 14));
+         */
+        u_char* modifiedPacket;
+        memcpy(modifiedPacket, packet, lengthPacket);
+        struct ether_header * eptr2 = (struct ether_header *) packet;
+        ethernet2 = (struct sniff_ethernet*)(modifiedPacket);
+        ip2 = (struct sniff_ip*)(modifiedPacket + SIZE_ETHERNET);
+        size_ip2 = IP_HL(ip2)*4;
+        tcp2 = (struct sniff_tcp*)(modifiedPacket + SIZE_ETHERNET + size_ip2);
+        
+        /* define/compute tcp payload (segment) offset */
+        payload = (u_char *)(modifiedPacket + SIZE_ETHERNET + size_ip2 + size_tcp2);
+        
+        char * key1 = computeSourceKey(modifiedPacket);
+        char * key2 = computeDestKey(modifiedPacket);
+        update_keys(key1, key2);
+        update_keys(key2, key1);
+        int index = in_ack_table(key1, key2);
+        int seqoff = getArray(&seq_table, index);
+        int ackoff = getArray(&ack_table, index);
+
+        //copies a packet and modifies the TCP acknowledgement and sequence numbers;
+        long newseq=(tcp2->th_seq)+seqoff; //Uses a long since a long is 4 bytes
+        long newack=(tcp2->th_ack)+ackoff;
+        *(modifiedPacket+SIZE_ETHERNET+size_ip2+4)=newseq;
+        *(modifiedPacket+SIZE_ETHERNET+size_ip2+4)=newack;
+        
+        
+
+        //update payload
+        payloadFind(payload, find, replace);
+        int replacements = count;
+        count = 0;
+        //update table
+        int total_offset = offset * replacements;
+        add_table_offset(index, total_offset);
+        short newLength=*(modifiedPacket+SIZE_ETHERNET+2)+total_offset;
+        *(modifiedPacket+SIZE_ETHERNET+2)=newLength;
+        
+        
+        unsigned char* IP = (char*) malloc(sizeof(char) * 20);
+        for(int j = 14; j < 20 + 14; j++){
+            IP[j - 14] = modifiedPacket[j];
+        }
+        IP[3] = 2 * IP[3];
+        *(modifiedPacket + 3 + 14) = IP[3];
+        *(IP + 10) = 0x00;
+        *(IP + 11) = 0x00;
+        short checksum = ip_checksum(IP, 20);
+        *(modifiedPacket + 10 + SIZE_ETHERNET) = checksum & 0xff;
+        *(modifiedPacket + 11 + SIZE_ETHERNET) = ((checksum >> 8) & 0xff);
+        int packetsize = *(modifiedPacket+2+ 14) + total_offset;
+        if(pcap_sendpacket(descr, modifiedPacket, packetsize) < 0){//to send the packet, you must specify the interface, the packet, and the size of the packet
+            printf("packet not successfully sent");
+        }
+    }
+    else{
+        if(pcap_sendpacket(descr, packet, pkthdr->len) < 0){
+            printf("packet not successfully sent");
+        }
+    }
+}
+
 
 /* handle ethernet packets, much of this code gleaned from
  * print-ether.c from tcpdump source
@@ -288,9 +341,9 @@ int main(int argc,char **argv)
     bpf_u_int32 netp;           /* ip                        */
     u_char* args = NULL;
     
-    char* find = argv[3];
-    char* replace = argv[4];
-    int difference = strlen(find)-strlen(replace);
+    find = argv[3];
+    replace = argv[4];
+    offset = strlen(find)-strlen(replace);
     
     /* Options must be passed in as a string because I am lazy */
     if(argc < 4){
