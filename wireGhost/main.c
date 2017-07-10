@@ -13,7 +13,6 @@
 #include "arraylist.h"
 #include "string.h"
 
-
 #define SIZE_ETHERNET 14
 #define IP_HL(ip)               (((ip)->ip_vhl) & 0x0f)
 #define IP_V(ip)                (((ip)->ip_vhl) >> 4)
@@ -213,7 +212,7 @@ void update_keys(char * sourcekey, char * destkey){
 /* Callback function which modifies the pacet */
 void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* packet)
 {
-    
+    printf("entered callback");
     /* declare pointers to packet headers */
     const struct sniff_ethernet *ethernet;  /* The ethernet header [1] */
     const struct sniff_ip *ip;              /* The IP header */
@@ -236,6 +235,7 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
     u_int16_t type = ntohs(eptr->ether_type);
     
     if(type == ETHERTYPE_IP) {/* handle IP packet */
+        printf("entered ethernet");
         /* define ethernet header */
         ethernet = (struct sniff_ethernet*)(packet);
         
@@ -256,12 +256,14 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
             printf("   * Invalid TCP header length: %u bytes\n", size_tcp);
             return;
         }
+        printf("about to copy");
         /*
         u_char* modifiedPacket = (u_char*) malloc((2 * *(packet + 17) + 14) * sizeof(u_char));
         memcpy(modifiedPacket, packet, (*(packet + 17) + 14));
          */
         u_char* modifiedPacket;
         memcpy(modifiedPacket, packet, lengthPacket);
+        printf("copied");
         struct ether_header * eptr2 = (struct ether_header *) packet;
         ethernet2 = (struct sniff_ethernet*)(modifiedPacket);
         ip2 = (struct sniff_ip*)(modifiedPacket + SIZE_ETHERNET);
@@ -310,11 +312,13 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
         *(modifiedPacket + 10 + SIZE_ETHERNET) = checksum & 0xff;
         *(modifiedPacket + 11 + SIZE_ETHERNET) = ((checksum >> 8) & 0xff);
         int packetsize = *(modifiedPacket+2+ 14) + total_offset;
+        printf("about to send");
         if(pcap_sendpacket(descr, modifiedPacket, packetsize) < 0){//to send the packet, you must specify the interface, the packet, and the size of the packet
             printf("packet not successfully sent");
         }
     }
     else{
+        printf("not ethernet");
         if(pcap_sendpacket(descr, packet, pkthdr->len) < 0){
             printf("packet not successfully sent");
         }
@@ -375,6 +379,7 @@ int main(int argc,char **argv)
     }
     
     /* ... and loop */
+    printf("about to loop mf");
     pcap_loop(descr,atoi(argv[1]),my_callback,args);
     
     pcap_freecode(&fp);
