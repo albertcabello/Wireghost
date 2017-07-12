@@ -78,6 +78,9 @@ char * find;
 int count = 0;
 
 void payloadFind(const char* payload, const char* key, const char* replacement) {
+	if (payload == NULL) {
+		return;
+	}
     char * lastOccurence = (char *)payload;
     char * nextOccurence = strstr(payload, key);
     char temp[3000];
@@ -287,6 +290,7 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
         *(modifiedPacket+SIZE_ETHERNET+size_ip2+4)=newack;
         printf("A\n");
         //update payload
+	printf("Payload: %s", payload);
         payloadFind(payload, find, replace);
         printf("B\n");
 
@@ -377,6 +381,7 @@ int main(int argc,char **argv)
     }
     
     /* ... and loop */
+printf("About to enter callback\n");
     pcap_loop(descr,atoi(argv[1]),my_callback,args);
     
     pcap_freecode(&fp);
