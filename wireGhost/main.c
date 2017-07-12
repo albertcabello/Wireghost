@@ -287,7 +287,7 @@ void my_callback(u_char *args,const struct pcap_pkthdr* pkthdr,const u_char* pac
         long newseq=(tcp2->th_seq)+seqoff; //Uses a long since a long is 4 bytes
         long newack=(tcp2->th_ack)+ackoff;
         *(modifiedPacket+SIZE_ETHERNET+size_ip2+4)=newseq;
-        *(modifiedPacket+SIZE_ETHERNET+size_ip2+4)=newack;
+        *(modifiedPacket+SIZE_ETHERNET+size_ip2+8)=newack;
         printf("A\n");
         //update payload
 	printf("Payload: %s", payload);
