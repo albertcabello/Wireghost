@@ -775,6 +775,7 @@ deps_/media/sf_Wireghost/wireGhost/netfilter.o := \
     $(wildcard include/config/blk/dev/io/trace.h) \
     $(wildcard include/config/memcg/kmem.h) \
     $(wildcard include/config/compat/brk.h) \
+    $(wildcard include/config/cgroups.h) \
     $(wildcard include/config/virt/cpu/accounting/gen.h) \
     $(wildcard include/config/sysvipc.h) \
     $(wildcard include/config/auditsyscall.h) \
@@ -782,7 +783,6 @@ deps_/media/sf_Wireghost/wireGhost/netfilter.o := \
     $(wildcard include/config/block.h) \
     $(wildcard include/config/task/xacct.h) \
     $(wildcard include/config/cpusets.h) \
-    $(wildcard include/config/cgroups.h) \
     $(wildcard include/config/futex.h) \
     $(wildcard include/config/arch/want/batched/unmap/tlb/flush.h) \
     $(wildcard include/config/fault/injection.h) \

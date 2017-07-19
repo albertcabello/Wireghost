@@ -16,8 +16,28 @@ unsigned int in_hook(unsigned int hooknum, struct sk_buff * skb,
 		       int (*okfn)(struct sk_buff*)) {
 	struct tcphdr *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
-	printk(KERN_ERR "IP Source: %pI4\n", &iph->saddr);
-	return NF_ACCEPT; //Let packets go through
+	unsigned char *tail;
+	unsigned char *user_data;
+	unsigned char *it;
+	if (!skb)
+		return NF_ACCEPT;
+	u16 sport, dport;
+	u32 saddr, daddr;
+	saddr = ntohl(iph->saddr);
+	daddr = ntohl(iph->daddr);
+	sport = ntohs(tcph->source);
+	dport = ntohs(tcph->dest);
+	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
+	printk("NETFILTER.C: DATA: ");
+	for (it = user_data; it != tail; ++it) {
+		char c = *(char *)it;
+		if (c== '\0') {
+			break;
+		}
+		printk("%c", c);
+	}
+	pr_debug("\n\n");
+	return NF_ACCEPT;
 }
 //Modify this function how you please to change what happens to outgoing packets
 //Does nothing except say goodbye at the moment
@@ -25,7 +45,6 @@ unsigned int out_hook(unsigned int hooknum, struct sk_buff **skb,
 		       const struct net_device *in, 
 		       const struct net_device *out,
 		       int (*okfn)(struct sk_buff*)) {
-	printk(KERN_ERR "Goodbye packet!\n");
 	return NF_ACCEPT; //Let packets go through
 }
 int init_module() {
