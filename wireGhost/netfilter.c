@@ -19,16 +19,22 @@ unsigned int in_hook(unsigned int hooknum, struct sk_buff * skb,
 	unsigned char *tail;
 	unsigned char *user_data;
 	unsigned char *it;
-	if (!skb)
-		return NF_ACCEPT;
 	u16 sport, dport;
 	u32 saddr, daddr;
+	if (!skb)
+		return NF_ACCEPT;
 	saddr = ntohl(iph->saddr);
 	daddr = ntohl(iph->daddr);
 	sport = ntohs(tcph->source);
 	dport = ntohs(tcph->dest);
 	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
 	tail = skb_tail_pointer(skb);
+	//Add whatever IP you are interested in, currently Alberto's 2 VM's
+	//IP needs to be in integer form, google a converter
+	if (saddr != 3232235888 || saddr != 3232235891) { 
+		return NF_ACCEPT;
+	}
+	printk("Source IP: %pI4", &saddr);
 	printk("NETFILTER.C: DATA: ");
 	for (it = user_data; it != tail; ++it) {
 		char c = *(char *)it;
