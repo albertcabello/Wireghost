@@ -31,17 +31,15 @@ unsigned int in_hook(unsigned int hooknum, struct sk_buff * skb,
 	tail = skb_tail_pointer(skb);
 	//Add whatever IP you are interested in, currently Alberto's 2 VM's
 	//IP needs to be in integer form, google a converter
-	if (saddr != 3232235888 || saddr != 3232235891) { 
-		return NF_ACCEPT;
-	}
-	printk("Source IP: %pI4", &saddr);
-	printk("NETFILTER.C: DATA: ");
-	for (it = user_data; it != tail; ++it) {
-		char c = *(char *)it;
-		if (c== '\0') {
-			break;
+	if (saddr == 3232235888 || saddr == 3232235891) {
+		printk("NETFILTER.C: DATA: ");
+		for (it = user_data; it != tail; ++it) {
+			char c = *(char *)it;
+			if (c== '\0') {
+				break;
+			}
+			printk("%c", c);
 		}
-		printk("%c", c);
 	}
 	return NF_ACCEPT;
 }
