@@ -28,6 +28,7 @@ unsigned int in_hook(unsigned int hooknum, struct sk_buff * skb,
 	sport = ntohs(tcph->source);
 	dport = ntohs(tcph->dest);
 	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
+	tail = skb_tail_pointer(skb);
 	printk("NETFILTER.C: DATA: ");
 	for (it = user_data; it != tail; ++it) {
 		char c = *(char *)it;
@@ -36,7 +37,6 @@ unsigned int in_hook(unsigned int hooknum, struct sk_buff * skb,
 		}
 		printk("%c", c);
 	}
-	pr_debug("\n\n");
 	return NF_ACCEPT;
 }
 //Modify this function how you please to change what happens to outgoing packets
