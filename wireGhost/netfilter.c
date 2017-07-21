@@ -9,16 +9,15 @@
 static struct nf_hook_ops netfilter_ops_in; //NF_INET_PRE_ROUTING
 static struct nf_hook_ops netfilter_ops_out; //NF_INET_POST_ROUTING
 //Modify this function how you please to change what happens to incoming packets
-//Right now I just print the source ip address (it is correct) although it also prints the gateway address
-unsigned int in_hook(unsigned int hooknum, struct sk_buff * skb,  
-		       const struct net_device *in, 
-		       const struct net_device *out,
-		       int (*okfn)(struct sk_buff*)) {
+//EQUIVALENT TO PCAP CALLBACK
+unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_state *state) {
 	struct tcphdr *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
 	unsigned char *tail;
 	unsigned char *user_data;
 	unsigned char *it;
+	char payload[1000];
+	int len;
 	u16 sport, dport;
 	u32 saddr, daddr;
 	if (!skb)
@@ -32,25 +31,23 @@ unsigned int in_hook(unsigned int hooknum, struct sk_buff * skb,
 	//Add whatever IP you are interested in, currently Alberto's 2 VM's
 	//IP needs to be in integer form, google a converter
 	if (saddr == 3232235888 || saddr == 3232235891) {
-		printk("NETFILTER.C: DATA: ");
+		len = 0;
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
-			if (c== '\0') {
-				break;
-			}
-			printk("%c", c);
+			payload[len] = c;
+			len++;
 		}
+		payload[len] = '\0';
+		printk("NETFILTER.C: DATA: %s", payload);
 	}
 	return NF_ACCEPT;
 }
 //Modify this function how you please to change what happens to outgoing packets
-//Does nothing except say goodbye at the moment
-unsigned int out_hook(unsigned int hooknum, struct sk_buff **skb, 
-		       const struct net_device *in, 
-		       const struct net_device *out,
-		       int (*okfn)(struct sk_buff*)) {
+//Does nothing at the moment
+unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_state *state) {
 	return NF_ACCEPT; //Let packets go through
 }
+
 int init_module() {
 	netfilter_ops_in.hook = in_hook;
 	netfilter_ops_in.pf = PF_INET;
