@@ -2,11 +2,15 @@
 #include<string.h>
 #include <stdlib.h>
 int count = 0;
-void payloadFind(const char* payload, const char* key, const char* replacement) {
-	char * lastOccurence = (char *)payload;
-	char * nextOccurence = strstr(payload, key);
-	char temp[1500];
-	int seen = 0;
+void payloadFind(char* payload, const char* key, const char* replacement) {
+	char * lastOccurence; 
+	char * nextOccurence; 	
+	char * temp;
+	int seen;
+	temp = malloc(1500);
+	seen = 0;
+	nextOccurence = strstr(payload, key);
+	lastOccurence = (char *)payload;
 	while (nextOccurence != NULL) {
 		seen++;
 		count++;
@@ -18,11 +22,13 @@ void payloadFind(const char* payload, const char* key, const char* replacement) 
 	}
 //	temp = realloc(temp, (strlen(payload)-seen*(strlen(key)+strlen(replacement))+strlen(lastOccurence)));
 	strcat(temp, lastOccurence);
-	payload = temp;
+	payload = malloc(1500);
+	strncpy(payload, temp, strlen(temp));
+	printf("%s\n", payload);
 }	
 
 int main() {
-	payloadFind("abccdebc", "abccdebc", "ghzxxxx");
+	payloadFind("bcad", "a", "zyxw");
 	return 0;
 }
 

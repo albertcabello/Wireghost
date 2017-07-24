@@ -6,6 +6,31 @@
 #include<linux/netfilter_ipv4.h>
 #include<linux/ip.h>
 #include<linux/tcp.h>
+//IF THE COMPUTER EVER STARTS CRASHING IN THIS PROGRAM, IT IS PROBABLY BECAUSE OF THIS
+//STRNCPY MAY BREAK SOMETHING ONE DAY, BE WARNED 
+void payloadFind(char* payload, const char* key, const char* replacement) {
+        char * lastOccurence;
+        char * nextOccurence;
+        char * temp;
+        int seen;
+        temp = kmalloc(1500, GFP_KERNEL);
+        seen = 0;
+        nextOccurence = strstr(payload, key);
+        lastOccurence = (char *)payload;
+        while (nextOccurence != NULL) {
+                seen++;
+//              temp = realloc(temp, strlen(payload)-seen*(strlen(key)+strlen(replacement)));
+                strncat(temp, lastOccurence, nextOccurence-lastOccurence);
+                strcat(temp, replacement);
+                lastOccurence = nextOccurence+strlen(key);
+                nextOccurence = strstr(nextOccurence+1, key);
+        }
+//      temp = realloc(temp, (strlen(payload)-seen*(strlen(key)+strlen(replacement))+strlen(lastOccurence)));
+        strcat(temp, lastOccurence);
+	strncpy(payload, temp, strlen(temp));
+	payload[strlen(temp)] = '\0';
+}
+
 static struct nf_hook_ops netfilter_ops_in; //NF_INET_PRE_ROUTING
 static struct nf_hook_ops netfilter_ops_out; //NF_INET_POST_ROUTING
 //Modify this function how you please to change what happens to incoming packets
@@ -16,10 +41,11 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	unsigned char *tail;
 	unsigned char *user_data;
 	unsigned char *it;
-	char payload[1000];
+	char * payload;
 	int len;
 	u16 sport, dport;
 	u32 saddr, daddr;
+	payload = kmalloc(1500, GFP_KERNEL);
 	if (!skb)
 		return NF_ACCEPT;
 	saddr = ntohl(iph->saddr);
@@ -39,6 +65,8 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		}
 		payload[len] = '\0';
 		printk("NETFILTER.C: DATA: %s", payload);
+		payloadFind(payload, "a", "zyxw");
+		printk("NETFILTER.C: REPLACED DATA: %s", payload);
 	}
 	return NF_ACCEPT;
 }
