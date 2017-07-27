@@ -1,2 +1,8 @@
 a.out
 .DS_Store
+.built-in.o.cmd
+.netfilter.ko.cmd
+.netfilter.mod.cmd
+.netfilter.o.cmd
+modules.order
+
