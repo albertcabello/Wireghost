@@ -4,5 +4,7 @@ a.out
 .netfilter.ko.cmd
 .netfilter.mod.cmd
 .netfilter.o.cmd
+.netfilter.mod.o.cmd
+.tmp_versions
 modules.order
 
