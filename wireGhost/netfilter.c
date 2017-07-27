@@ -56,7 +56,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	tail = skb_tail_pointer(skb);
 	//Add whatever IP you are interested in, currently Alberto's 2 VM's
 	//IP needs to be in integer form, google a converter
-	if (saddr == 3232235888 || saddr == 3232235891) {
+	if(true) {
 		len = 0;
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
