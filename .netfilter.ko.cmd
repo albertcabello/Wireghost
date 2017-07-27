@@ -1,1 +1,0 @@
-cmd_/media/sf_Wireghost/netfilter.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /media/sf_Wireghost/netfilter.ko /media/sf_Wireghost/netfilter.o /media/sf_Wireghost/netfilter.mod.o
