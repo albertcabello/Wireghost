@@ -32,19 +32,20 @@ void payloadFind(char* payload, const char* key, const char* replacement) {
 static struct nf_hook_ops netfilter_ops_in; //NF_INET_PRE_ROUTING
 static struct nf_hook_ops netfilter_ops_out; //NF_INET_POST_ROUTING
 //Modify this function how you please to change what happens to incoming packets
-//EQUIVALENT TO PCAP CALLBACK
 unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_state *state) {
 	struct tcphdr *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
 	struct tcphdr *modtcph;
 	struct iphdr *modiph;
 	unsigned char *tail;
+	unsigned char *head;
 	unsigned char *user_data;
 	unsigned char *it;
 	struct sk_buff * modskb;
 	char * tempPay;
 	char * payload;
-	int len;
+	int lenOrig;
+	int lenNew;
 	u16 sport, dport;
 	u32 saddr, daddr;
 	tempPay = kmalloc(1500, GFP_KERNEL);
@@ -55,41 +56,55 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	daddr = ntohl(iph->daddr);
 	sport = ntohs(tcph->source);
 	dport = ntohs(tcph->dest);
-	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
 	tail = skb_tail_pointer(skb);
 	if (saddr == 3232249857) {
 		return NF_ACCEPT;
 	}
+	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
 	//Add whatever IP you are interested in, currently Alberto's 2 VM's
 	//IP needs to be in integer form, google a converter
 	if(saddr == 3232249868 || saddr == 3232249869) {
-		len = 0;
+		lenOrig = 0;
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
-			payload[len] = c;
-			len++;
+			payload[lenOrig] = c;
+			lenOrig++;
 		}
-		payload[len] = '\0';
+		payload[lenOrig] = '\0';
 		printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s", payload);
 		payloadFind(payload, "a", "b");
-		//printk("NETFILTER.C: REPLACED DATA: %s", payload);
 		/* Everything from here forward is complete guess work, if this works, don't expect it to work forever
 		If it doesn't work, I will not be surprised. */
-		modskb = (struct sk_buff *)skb_copy_expand(skb, 0, strlen(payload) - skb_tailroom(skb), GFP_ATOMIC);
+		modskb = (struct sk_buff *)skb_copy_expand(skb, 0, strlen(payload)-skb_tailroom(skb), GFP_ATOMIC);
 		modtcph = tcp_hdr(modskb);
 		user_data = (unsigned char *)((unsigned char *)modtcph + (modtcph->doff * 4));
-		skb_put(modskb, strlen(payload)-1);
+		skb_put(modskb, strlen(payload)-lenOrig);
 		memcpy(user_data, payload, strlen(payload));
-		skb = modskb;
-		len = 0;
+		lenNew = 0;
 		tail = skb_tail_pointer(modskb);
+		if (!tail) {
+			printk("tail is null");
+		}
+		if (!modskb) {
+			printk("modskb is null");
+		}
+		if (!modtcph) {
+			printk("modtcph");
+		}
+		//printk("payload size %li" , sizeof(payload));
+		//printk("tempPay size %li", sizeof(tempPay));
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
-			tempPay[len] = c;
-			len++;
+			if (c) {
+				tempPay[lenNew] = c;
+				lenNew++;
+			}
+			else {
+				printk("Char is null\n");
+			}
 		}
-		//Somewhere after here, something causes a kernel panic
-		tempPay[len] = '\0';
+		//printk("NETFILTER.C: LEN New = %d\n", lenNew);
+		tempPay[lenNew] = '\0';
 		printk("NETFILTER.C: DATA OF MODSKB: %s", tempPay);
 	}
 	return NF_ACCEPT;
