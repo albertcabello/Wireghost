@@ -1,6 +1,9 @@
+
+#include <linux/module.h>
+#include <linux/netfilter.h>
+#include <linux/netfilter_ipv4.h>
 #include "arraylist.h"
-#include "string.h"
-#include <stdlib.h>
+#include <linux/slab.h>
 
 
 
@@ -25,7 +28,7 @@ void arraylist_add(struct arraylist *list, value_type value) {
     int size = arraylist_get_size(*list);
     value_type *new_data;
     
-    new_data = realloc(list->data, (size + 1) * sizeof new_data[0]);
+    new_data = krealloc(list->data, (size + 1) * sizeof new_data[0],GFP_KERNEL);
     
     if (new_data)
     {
@@ -48,7 +51,7 @@ int arraylist_contains(const struct arraylist list, value_type value) {
     int index = 0;
     int counter = 0;
     for(; index != arraylist_get_size(list); ++index) {
-        if(strcmp(list.data[index], value) == 0) {
+        if(list.data[index]==value) {
             counter++;
         }
     }
@@ -59,7 +62,7 @@ int arraylist_contains(const struct arraylist list, value_type value) {
 int arraylist_first(const struct arraylist list, value_type value) {
     int index = 0;
     for(; index != arraylist_get_size(list); ++index) {
-        if(strcmp(list.data[index], value) == 0) {
+        if(list.data[index]==value){
             return index;
         }
     }
@@ -68,8 +71,8 @@ int arraylist_first(const struct arraylist list, value_type value) {
 }
 
 
-void initArray(Array *a, size_t initialSize) {
-    a->array = (int *)malloc(initialSize * sizeof(int));
+void initArray(Array *a, int initialSize) {
+    a->array = (int *)kmalloc(initialSize * sizeof(int),GFP_KERNEL);
     a->used = 0;
     a->size = initialSize;
 }
@@ -79,7 +82,7 @@ void insertArray(Array *a, int element) {
     // Therefore a->used can go up to a->size
     if (a->used == a->size) {
         a->size *= 2;
-        a->array = (int *)realloc(a->array, a->size * sizeof(int));
+        a->array = (int *)krealloc(a->array, a->size * sizeof(int),GFP_KERNEL);
     }
     a->array[a->used++] = element;
 }
@@ -93,14 +96,14 @@ int contains(Array *a, int element){
     }
     return -1;
 }
-size_t size(Array *a){
+int size(Array *a){
     return a->size;
 }
 int getArray(Array *a, int index){
     return a->array[index];
 }
 void freeArray(Array *a) {
-    free(a->array);
+    kfree(a->array);
     a->array = NULL;
     a->used = a->size = 0;
 }

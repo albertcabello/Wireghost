@@ -1,9 +1,8 @@
 #ifndef _ARRAYLIST_H
 #define _ARRAYLIST_H
 
-#include <stdio.h>
 
-typedef char* value_type;
+typedef u32 value_type;
 
 struct arraylist {
     int size;
@@ -11,14 +10,14 @@ struct arraylist {
 };
 typedef struct {
     int *array;
-    size_t used;
-    size_t size;
+    int used;
+    int size;
 } Array;
-extern void initArray(Array *a, size_t initialSize);
+extern void initArray(Array *a, int initialSize);
 extern void insertArray(Array *a, int element);
 extern void freeArray(Array *a);
 extern int contains(Array *a, int element);
-extern size_t size(Array *a);
+extern int size(Array *a);
 extern int getArray(Array *a, int index);
 extern void updateArray(Array *a, int index, int newValue);
 extern void arraylist_initial(struct arraylist *list);
