@@ -1,1 +1,0 @@
-cmd_/media/sf_Wireghost/arraylist.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /media/sf_Wireghost/arraylist.ko /media/sf_Wireghost/arraylist.o /media/sf_Wireghost/arraylist.mod.o
