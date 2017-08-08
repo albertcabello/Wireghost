@@ -93,87 +93,90 @@ static struct nf_hook_ops netfilter_ops_out; //NF_INET_POST_ROUTING
 //Modify this function how you please to change what happens to incoming packets
 unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_state *state) {
 	//Couple lines need to be pasted
-	struct tcphdr *tcph = tcp_hdr(skb);
+	struct tcphdr *modtcph, *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
-	struct tcphdr *modtcph;
-	unsigned char *tail;
-	unsigned char *user_data;
-	unsigned char *it;
 	struct sk_buff * modskb;
-	char * tempPay;
-	char * payload;
-	int lenOrig;
-	int lenNew;
-	bool first = 0;
+	unsigned char *tail, *user_data, *it;
+	char * tempPay, *payload;
+	int lenOrig, lenNew, tcp_len;
 	__u16 sport, dport;
 	__u32 saddr, daddr;
-	tempPay = kmalloc(1500, GFP_KERNEL);
-	payload = kmalloc(1500, GFP_KERNEL);
+	payload = tempPay = kmalloc(1500, GFP_KERNEL);
+
+	/* Ignore the skb if it is empty */
 	if (!skb)
 		return NF_ACCEPT;
+
+	/* Convert the source IP address (saddr), source port (sport), 
+	   destination IP address (daddr), and destination port (dport)
+	   from the network format to the host format */
 	saddr = ntohl(iph->saddr);
 	daddr = ntohl(iph->daddr);
 	sport = ntohs(tcph->source);
 	dport = ntohs(tcph->dest);
+
+	/* User_data points to the beginning of the payload in the skb
+	   tail points to the end of the payload in skb */
 	tail = skb_tail_pointer(skb);
 	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
-	//skb_unshare(skb, GFP_ATOMIC);
-	//Add whatever IP you are interested in, currently Alberto's 2 VM's
-	//IP needs to be in integer form, google a converter
+
+	/* Filter all IP's except those we are interested in
+	   for now must be in integer form */
 	if(saddr == 167772684 || saddr == 167772685) {
+		skb_unshare(skb, GFP_ATOMIC); //Must unshare the skb to modify it
+
+		/* Loops through the skb payload and stores it in char * payload */
 		lenOrig = 0;
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
-			if (!first) {
-				//printk("TCP Check before: %d\n", tcph->check);
-				*it = 'h';
-				//tcph->check -= ('h' - 'a');
-				//printk("TCP Check after: %d\n", tcph->check);
-			}
-			first = 1;
 			payload[lenOrig] = c;
 			lenOrig++;
 		}
 		payload[lenOrig] = '\0';
+
+		
 		printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s", payload);
+		
+		/* Fix the ip header ttl because the spoofing takes away one
+		   Update the TCP and IP headers.  
+		   This does not work on non-linear skb's, will need to be fixed soon */
+		tcp_len = skb->len - 4 * iph->ihl;
 		iph->ttl += 1;
-		ip_send_check(iph); //This line doesn't work on non-linear skb, fix eventually
+		ip_send_check(iph);
 		tcph->check = 0;
-		tcph->check = tcp_v4_check(skb->len - 4 * iph->ihl, iph->saddr, iph->daddr, csum_partial((char *)tcph, skb->len-4*iph->ihl, 0));
+		tcph->check = tcp_v4_check(tcp_len, iph->saddr, iph->daddr, csum_partial((char *)tcph, tcp_len, 0));
+
+		/* Change the payload data stored in char * payload */
 		payloadFind(payload, "a", "b");
-		/* Everything from here forward is complete guess work, if this works, don't expect it to work forever
-		If it doesn't work, I will not be surprised. */
+
+
+		/* Creates a new skb: modskb
+		   modskb is an exact copy with the exception that it's payload
+		   area is large enough to hold the modified payload. */
 		modskb = (struct sk_buff *)skb_copy_expand(skb, 0, strlen(payload)-skb_tailroom(skb), GFP_ATOMIC);
 		modtcph = tcp_hdr(modskb);
-		user_data = (unsigned char *)((unsigned char *)modtcph + (modtcph->doff * 4));
 		skb_put(modskb, strlen(payload)-lenOrig);
-		memcpy(user_data, payload, strlen(payload));
-		lenNew = 0;
+
+		/* Same as above, user_data is the beginning of modskb's payload
+		   tail is the end of it. */
+		user_data = (unsigned char *)((unsigned char *)modtcph + (modtcph->doff * 4));
 		tail = skb_tail_pointer(modskb);
-		if (!tail) {
-			printk("tail is null");
-		}
-		if (!modskb) {
-			printk("modskb is null");
-		}
-		if (!modtcph) {
-			printk("modtcph");
-		}
-		//printk("payload size %li" , sizeof(payload));
-		//printk("tempPay size %li", sizeof(tempPay));
+
+		/* memcpy into user_data the new payload */
+		memcpy(user_data, payload, strlen(payload));
+
+		/* Loops through the modskb payload and stores it in char * tempPay */
+		lenNew = 0;
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
-			if (c) {
-				tempPay[lenNew] = c;
-				lenNew++;
-			}
-			else {
-				printk("Char is null\n");
-			}
+			tempPay[lenNew] = c;
+			lenNew++;
 		}
-		//printk("NETFILTER.C: LEN New = %d\n", lenNew);
 		tempPay[lenNew] = '\0';
-		//printk("NETFILTER.C: DATA OF MODSKB: %s", tempPay);
+
+
+		printk("NETFILTER.C: DATA OF MODSKB: %s", tempPay);
+
 	}
 	return NF_ACCEPT;
 }
@@ -184,13 +187,19 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 	struct iphdr * iph = ip_hdr(skb);
 	unsigned char *user_data, *it, *tail;
 	u32 saddr;
+
+	/* Convert source IP address from network format to host format */
 	saddr = ntohl(iph->saddr);
-	if (saddr == 3232249857) {
-		return NF_ACCEPT;
-	}
+
+	/* Same as above, user_data points to beginning of payload and tail 
+	   points to the end of the payload */
 	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
 	tail = skb_tail_pointer(skb);
+
+	/* Filter for only the IP addresses we are interested in */
 	if(saddr == 167772684 || saddr == 167772685) {
+
+		/* Loop through the skb payload and print it */
 		printk("NETFILTER.C: OUTGOING PACKET DATA: ");
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
@@ -198,9 +207,6 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 				break;
 			}
 			printk("%c", c);
-		}
-		if (!skb->sk) {
-			printk("sk is null on outgoing hook");
 		}
 		printk("\n");
 
@@ -213,10 +219,14 @@ int init_module() {
 	netfilter_ops_in.pf = PF_INET;
 	netfilter_ops_in.hooknum = NF_INET_PRE_ROUTING;
 	netfilter_ops_in.priority = NF_IP_PRI_FIRST;
+
+
 	netfilter_ops_out.hook = out_hook;
 	netfilter_ops_out.pf = PF_INET;
 	netfilter_ops_out.hooknum = NF_INET_POST_ROUTING;
 	netfilter_ops_out.priority = NF_IP_PRI_FIRST;
+
+
 	nf_register_hook(&netfilter_ops_in);
 	nf_register_hook(&netfilter_ops_out);
 	//Add array initializers	
