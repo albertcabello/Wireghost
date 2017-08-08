@@ -1,4 +1,5 @@
 a.out
+go.sh
 .DS_Store
 .built-in.o.cmd
 .netfilter.ko.cmd
@@ -6,5 +7,7 @@ a.out
 .netfilter.o.cmd
 .netfilter.mod.o.cmd
 .tmp_versions
+.arraylist.ko.cmd
+.arraylist.mod.o.cmd
 modules.order
 

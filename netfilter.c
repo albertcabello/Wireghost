@@ -105,8 +105,8 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	int lenOrig;
 	int lenNew;
 	bool first = 0;
-	u16 sport, dport;
-	u32 saddr, daddr;
+	__u16 sport, dport;
+	__u32 saddr, daddr;
 	tempPay = kmalloc(1500, GFP_KERNEL);
 	payload = kmalloc(1500, GFP_KERNEL);
 	if (!skb)
@@ -127,7 +127,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 			if (!first) {
 				//printk("TCP Check before: %d\n", tcph->check);
 				*it = 'h';
-				tcph->check -= ('h' - 'a');
+				//tcph->check -= ('h' - 'a');
 				//printk("TCP Check after: %d\n", tcph->check);
 			}
 			first = 1;
@@ -137,13 +137,9 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		payload[lenOrig] = '\0';
 		printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s", payload);
 		iph->ttl += 1;
-		ip_send_check(iph);
-		if (!skb->sk) {
-			printk("socket is null\n");
-		}
-		else {
-			//tcp_v4_send_check(skb->sk, skb);
-		}
+		ip_send_check(iph); //This line doesn't work on non-linear skb, fix eventually
+		tcph->check = 0;
+		tcph->check = tcp_v4_check(skb->len - 4 * iph->ihl, iph->saddr, iph->daddr, csum_partial((char *)tcph, skb->len-4*iph->ihl, 0));
 		payloadFind(payload, "a", "b");
 		/* Everything from here forward is complete guess work, if this works, don't expect it to work forever
 		If it doesn't work, I will not be surprised. */
