@@ -99,7 +99,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	unsigned char *tail, *user_data, *it;
 	char * tempPay, *payload;
 	int lenOrig, lenNew, tcp_len;
-	__u16 sport, dport;
+	__u16 sport, dport, ip_len;
 	__u32 saddr, daddr;
 	payload = tempPay = kmalloc(1500, GFP_KERNEL);
 
@@ -123,7 +123,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	/* Filter all IP's except those we are interested in
 	   for now must be in integer form */
 	if(saddr == 167772684 || saddr == 167772685) {
-		skb_unshare(skb, GFP_ATOMIC); //Must unshare the skb to modify it
+		//skb_unshare(skb, GFP_ATOMIC); //Must unshare the skb to modify it
 
 		/* Loops through the skb payload and stores it in char * payload */
 		lenOrig = 0;
@@ -137,17 +137,9 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		
 		printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s", payload);
 		
-		/* Fix the ip header ttl because the spoofing takes away one
-		   Update the TCP and IP headers.  
-		   This does not work on non-linear skb's, will need to be fixed soon */
-		tcp_len = skb->len - 4 * iph->ihl;
-		iph->ttl += 1;
-		ip_send_check(iph);
-		tcph->check = 0;
-		tcph->check = tcp_v4_check(tcp_len, iph->saddr, iph->daddr, csum_partial((char *)tcph, tcp_len, 0));
 
 		/* Change the payload data stored in char * payload */
-		payloadFind(payload, "a", "b");
+		payloadFind(payload, "a", "xyz");
 
 
 		/* Creates a new skb: modskb
@@ -176,6 +168,28 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 
 		printk("NETFILTER.C: DATA OF MODSKB: %s", tempPay);
+
+		if(pskb_expand_head(skb, 0, strlen(payload)-skb_tailroom(skb), GFP_ATOMIC)) {
+			printk("Sorry, we couldn't expand the skb, you'll just have to accept it\n");
+			return NF_ACCEPT;
+		}
+		tcph = tcp_hdr(skb);
+		iph = ip_hdr(skb);
+		skb_put(skb, strlen(payload)-lenOrig);
+		user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
+		memcpy(user_data, payload, strlen(payload));
+
+		/* Fix the ip header ttl because the spoofing takes away one
+		   Update the TCP and IP headers.  
+		   This does not work on non-linear skb's, will need to be fixed soon */
+		ip_len = ntohs(iph->tot_len);
+		ip_len += strlen(payload)-lenOrig;
+		iph->tot_len = htons(ip_len);
+		tcp_len = skb->len - 4 * iph->ihl;
+		iph->ttl += 1;
+		ip_send_check(iph);
+		tcph->check = 0;
+		tcph->check = tcp_v4_check(tcp_len, iph->saddr, iph->daddr, csum_partial((char *)tcph, tcp_len, 0));
 
 	}
 	return NF_ACCEPT;
