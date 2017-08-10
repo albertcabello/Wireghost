@@ -63,8 +63,6 @@
 //    }
 //    
 //}
-//IF THE COMPUTER EVER STARTS CRASHING IN THIS PROGRAM, IT IS PROBABLY BECAUSE OF THIS
-//STRNCPY MAY BREAK SOMETHING ONE DAY, BE WARNED 
 void payloadFind(char* payload, const char* key, const char* replacement) {
         char * lastOccurence;
         char * nextOccurence;
@@ -93,15 +91,14 @@ static struct nf_hook_ops netfilter_ops_out; //NF_INET_POST_ROUTING
 //Modify this function how you please to change what happens to incoming packets
 unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_state *state) {
 	//Couple lines need to be pasted
-	struct tcphdr *modtcph, *tcph = tcp_hdr(skb);
+	struct tcphdr *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
-	struct sk_buff * modskb;
 	unsigned char *tail, *user_data, *it;
-	char * tempPay, *payload;
-	int lenOrig, lenNew, tcp_len;
+	char *payload;
+	int lenOrig, tcp_len;
 	__u16 sport, dport, ip_len;
 	__u32 saddr, daddr;
-	payload = tempPay = kmalloc(1500, GFP_KERNEL);
+	payload = kmalloc(1500, GFP_KERNEL);
 
 	/* Ignore the skb if it is empty */
 	if (!skb)
@@ -141,50 +138,30 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		/* Change the payload data stored in char * payload */
 		payloadFind(payload, "a", "xyz");
 
-
-		/* Creates a new skb: modskb
-		   modskb is an exact copy with the exception that it's payload
-		   area is large enough to hold the modified payload. */
-		modskb = (struct sk_buff *)skb_copy_expand(skb, 0, strlen(payload)-skb_tailroom(skb), GFP_ATOMIC);
-		modtcph = tcp_hdr(modskb);
-		skb_put(modskb, strlen(payload)-lenOrig);
-
-		/* Same as above, user_data is the beginning of modskb's payload
-		   tail is the end of it. */
-		user_data = (unsigned char *)((unsigned char *)modtcph + (modtcph->doff * 4));
-		tail = skb_tail_pointer(modskb);
-
-		/* memcpy into user_data the new payload */
-		memcpy(user_data, payload, strlen(payload));
-
-		/* Loops through the modskb payload and stores it in char * tempPay */
-		lenNew = 0;
-		for (it = user_data; it != tail; ++it) {
-			char c = *(char *)it;
-			tempPay[lenNew] = c;
-			lenNew++;
-		}
-		tempPay[lenNew] = '\0';
-
-
-		printk("NETFILTER.C: DATA OF MODSKB: %s", tempPay);
-
+		/* Change the size of the skb so that it allows for larger payloads
+		   may fail if the changed payload is shorter */
 		if(pskb_expand_head(skb, 0, strlen(payload)-skb_tailroom(skb), GFP_ATOMIC)) {
 			printk("Sorry, we couldn't expand the skb, you'll just have to accept it\n");
 			return NF_ACCEPT;
 		}
+
+		/* Refresh header pointers after skb expand */
 		tcph = tcp_hdr(skb);
 		iph = ip_hdr(skb);
+
+		/* Reserve space in the skb for the data */
 		skb_put(skb, strlen(payload)-lenOrig);
+
+		/* memcpy into user_data the modified payload */
 		user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
 		memcpy(user_data, payload, strlen(payload));
 
-		/* Fix the ip header ttl because the spoofing takes away one
-		   Update the TCP and IP headers.  
-		   This does not work on non-linear skb's, will need to be fixed soon */
+		/* Convert the ip length from the network, change it to the new length, back to network */
 		ip_len = ntohs(iph->tot_len);
 		ip_len += strlen(payload)-lenOrig;
 		iph->tot_len = htons(ip_len);
+
+		/* Update TCP and IP checksums */
 		tcp_len = skb->len - 4 * iph->ihl;
 		iph->ttl += 1;
 		ip_send_check(iph);

@@ -22,10 +22,9 @@ __attribute__((section("__versions"))) = {
 	{ 0xe4a30d0e, __VMLINUX_SYMBOL_STR(nf_register_hook) },
 	{ 0xe113bbbc, __VMLINUX_SYMBOL_STR(csum_partial) },
 	{ 0x2124474, __VMLINUX_SYMBOL_STR(ip_send_check) },
-	{ 0xe16bca7a, __VMLINUX_SYMBOL_STR(pskb_expand_head) },
 	{ 0x69acdf38, __VMLINUX_SYMBOL_STR(memcpy) },
 	{ 0xe8914f18, __VMLINUX_SYMBOL_STR(skb_put) },
-	{ 0xc0cb0e45, __VMLINUX_SYMBOL_STR(skb_copy_expand) },
+	{ 0xe16bca7a, __VMLINUX_SYMBOL_STR(pskb_expand_head) },
 	{ 0x9166fada, __VMLINUX_SYMBOL_STR(strncpy) },
 	{ 0x754d539c, __VMLINUX_SYMBOL_STR(strlen) },
 	{ 0x61651be, __VMLINUX_SYMBOL_STR(strcat) },
@@ -43,4 +42,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "EC354CD78A0F54412D6A04F");
+MODULE_INFO(srcversion, "91FAC1C93E9779C2B770669");
