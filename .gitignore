@@ -9,5 +9,6 @@ go.sh
 .tmp_versions
 .arraylist.ko.cmd
 .arraylist.mod.o.cmd
+.*
 modules.order
 

@@ -7,66 +7,7 @@
 #include<net/ip.h>
 #include<net/tcp.h>
 #include<linux/hashtable.h>
-#include "arraylist.h"
-//static Array ack_table; //This is the table that will store the acknoledgment numbers
-//static Array seq_table; //This is the table that will store sequence numbers
-//struct arraylist source; //These are to be used in conjunction with the above
-//struct arraylist destination;
-//
-////returns index if pair is in ack table and -1 if value is not
-//int in_ack_table(u32 searchsource, u32 searchdest){
-//    Array appinsrc;
-//    Array appindest;
-//    int i;
-//    int j;
-//
-//    initArray(&appinsrc, 2);
-//    initArray(&appindest,2);
-//
-//    for(i =0;i<arraylist_get_size(source);i++){
-//        if(source.data[i]==searchsource){
-//            insertArray(&appinsrc,i);
-//        }
-//        if(destination.data[i]==searchdest){
-//            insertArray(&appindest,i);
-//        }
-//    }
-//    for(j = 0;j<size(&appinsrc);j++){
-//        if (contains(&appindest, getArray(&appinsrc,j))==1){
-//            return j;
-//        }
-//    }
-//    return -1;
-//}
-//
-//void add_table_element(u32 src, u32 dst){
-//    arraylist_add(&source, src);
-//    arraylist_add(&destination, dst);
-//    insertArray(&seq_table, 0);
-//    insertArray(&ack_table, 0);
-//}
-//
-//void add_table_offset(int index, int offset){
-//    int oldvalue;
-//    int oldvalue1;
-//    oldvalue=getArray(&ack_table, offset);
-//    updateArray(&ack_table, index, (oldvalue-offset));
-//    oldvalue1=getArray(&seq_table, offset);
-//    updateArray(&seq_table, index, (oldvalue1+offset));
-//}
-//
-//
-//void update_keys(u32 sourcekey, u32 destkey){
-//    if (in_ack_table(sourcekey, destkey)==(-1)){
-//        add_table_element(sourcekey, destkey);
-//    }
-//    if (in_ack_table(destkey, sourcekey)==(-1)){
-//        add_table_element(destkey, sourcekey);
-//    }
-//    
-//}
-//
-//
+
 // Parameters to be passed to the module
 static char * keyToReplace;
 static char * replacementForKey;
@@ -84,8 +25,8 @@ struct temp {
 	int offset;
 };
 
-struct temp seqTab[5];
-struct temp ackTab[5];
+static struct temp seqTab[5];
+static struct temp ackTab[5];
 
 void storeVal(char * table, struct temp t) {
 	int i;
@@ -93,6 +34,7 @@ void storeVal(char * table, struct temp t) {
 		for (i = 0; i < 5; i++) {
 			if (!seqTab[i].ip) {
 				seqTab[i] = t;
+				return;
 			}
 		}
 	}
@@ -100,6 +42,7 @@ void storeVal(char * table, struct temp t) {
 		for (i = 0; i < 5; i++) {
 			if (!ackTab[i].ip) {
 				ackTab[i] = t;
+				return;
 			}
 		}
 	}	
@@ -142,9 +85,6 @@ int getVal(char * table, int ip) {
 	return -1;
 }
 
-
-		
-
 int payloadFind(char* payload, const char* key, const char* replacement) {
         char * lastOccurence;
         char * nextOccurence;
@@ -179,7 +119,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	struct temp t;
 	unsigned char *tail, *user_data, *it;
 	char *payload;
-	int lenOrig, tcp_len, replacements, offset;
+	int lenOrig, tcp_len, replacements, offset, i;
 	__u16 sport, dport, ip_len;
 	__u32 saddr, daddr;
 	uint32_t seq, ack;
@@ -221,19 +161,20 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		/* Change the payload data stored in char * payload */
 		replacements = payloadFind(payload, "a", "xyz");
 
-		if (getVal("seqTab", saddr) == -1) {
+		if (getVal("ackTab", saddr) == -1) {
+			//printk("Acktab saddr, -1\n");
 			t.ip = saddr;
 			t.offset = 0;
-			storeVal("seqTab", t);
 			storeVal("ackTab", t);
+			storeVal("seqTab", t);
 		}
 		if (getVal("ackTab", daddr) == -1) {
+			//printk("Acktab daddr, -1\n");
 			t.ip = daddr;
 			t.offset = 0;
 			storeVal("ackTab", t);
 			storeVal("seqTab", t);
 		}
-
 
 		/* Change sequence number from network to host, add offset, back to network */
 		seq = ntohl(tcph->seq);
@@ -245,9 +186,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		ack += getVal("ackTab", saddr);
 		tcph->ack_seq = htonl(ack);
 
-		printk("NETFILTER.C: Seqoff: %d, Ackoff: %d\n", getVal("seqTab", saddr), getVal("ackTab", saddr));
-
-		if (strlen(payload)-lenOrig) {
+		if (strlen(payload) != lenOrig) {
 			offset = strlen(payload)-lenOrig;
 			t.ip = saddr;
 			t.offset = getVal("seqTab", saddr) + offset;
@@ -323,11 +262,6 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 }
 
 int init_module() {
-//	arraylist_initial(&source);
-//	arraylist_initial(&destination);
-//	initArray((&ack_table), 2);
-//	initArray(&seq_table, 2);
-
 	netfilter_ops_in.hook = in_hook;
 	netfilter_ops_in.pf = PF_INET;
 	netfilter_ops_in.hooknum = NF_INET_PRE_ROUTING;
@@ -338,12 +272,11 @@ int init_module() {
 	netfilter_ops_out.hooknum = NF_INET_POST_ROUTING;
 	netfilter_ops_out.priority = NF_IP_PRI_FIRST;
 
-
 	nf_register_hook(&netfilter_ops_in);
 	nf_register_hook(&netfilter_ops_out);
-	//Add array initializers	
 	return 0;
 }
+
 void cleanup_module() {
 	nf_unregister_hook(&netfilter_ops_in);
 	nf_unregister_hook(&netfilter_ops_out);
