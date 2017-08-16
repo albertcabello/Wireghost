@@ -1,11 +1,8 @@
-
-#Please don't touch this, I'm testing something out with the netfilter.c file
-ifneq ($(KERNELRELEASE),)
-obj-m := netfilter.o
-else 
-KDIR ?= /lib/modules/`uname -r`/build
-default:
-	$(MAKE) -C $(KDIR) M=$$PWD
-clean:
-	$(MAKE) -C $(KDIR) M=$$PWD clean
-endif
+TARGET = wireghost
+obj-m += $(TARGET).o
+wireghost-objs := netfilter.o arraylist.o
+#ccflags-$(CONFIG_ACPI_DEBUG) += -Wdeclaration-after-statement
+all :
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+clean :
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean

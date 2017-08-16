@@ -1,11 +1,8 @@
-
 #include <linux/module.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
-#include "arraylist.h"
 #include <linux/slab.h>
-
-
+#include "arraylist.h"
 
 void arraylist_initial(struct arraylist *list) {
     list->size = 0;
@@ -43,7 +40,7 @@ value_type arraylist_get(const struct arraylist list, int index) {
         return list.data[index];
     }
     else {
-        return NULL;
+        return -1;
     }
 }
 //returns number of appearances

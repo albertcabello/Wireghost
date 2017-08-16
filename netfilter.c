@@ -6,8 +6,10 @@
 #include<linux/tcp.h>
 #include<net/ip.h>
 #include<net/tcp.h>
-//Array ack_table; //This is the table that will store the acknoledgment numbers
-//Array seq_table; //This is the table that will store sequence numbers
+#include<linux/hashtable.h>
+#include "arraylist.h"
+//static Array ack_table; //This is the table that will store the acknoledgment numbers
+//static Array seq_table; //This is the table that will store sequence numbers
 //struct arraylist source; //These are to be used in conjunction with the above
 //struct arraylist destination;
 //
@@ -63,7 +65,87 @@
 //    }
 //    
 //}
-void payloadFind(char* payload, const char* key, const char* replacement) {
+//
+//
+// Parameters to be passed to the module
+static char * keyToReplace;
+static char * replacementForKey;
+
+// Paramter declarations 
+module_param(keyToReplace, charp, 0);
+module_param(replacementForKey, charp, 0);
+
+static inline int ipToInt(int a, int b, int c, int d) {
+	return (a * 16777216) + (b * 65536) + (c * 256) + d;
+}
+
+struct temp {
+	int ip;
+	int offset;
+};
+
+struct temp seqTab[5];
+struct temp ackTab[5];
+
+void storeVal(char * table, struct temp t) {
+	int i;
+	if (!strcmp(table, "seqTab")) {
+		for (i = 0; i < 5; i++) {
+			if (!seqTab[i].ip) {
+				seqTab[i] = t;
+			}
+		}
+	}
+	else {
+		for (i = 0; i < 5; i++) {
+			if (!ackTab[i].ip) {
+				ackTab[i] = t;
+			}
+		}
+	}	
+}
+
+void addVal(char * table, struct temp t) {
+	int i;
+	if (!strcmp(table, "seqTab")) {
+		for (i = 0; i < 5; i++) {
+			if (seqTab[i].ip == t.ip) {
+				seqTab[i].offset = t.offset;
+			}
+		}
+	}
+	else {
+		for (i = 0; i < 5; i++) {
+			if (ackTab[i].ip == t.ip) {
+				ackTab[i].offset = t.offset;
+			}
+		}
+	}
+}
+
+int getVal(char * table, int ip) {
+	int i;
+	if (!strcmp(table, "seqTab")) {
+		for (i = 0; i < 5; i++) {
+			if (seqTab[i].ip == ip) {
+				return seqTab[i].offset;
+			}
+		}
+	}
+	else {
+		for (i = 0; i < 5; i++) {
+			if (ackTab[i].ip == ip) {
+				return ackTab[i].offset;
+			}
+		}
+	}
+	return -1;
+}
+
+
+		
+
+int payloadFind(char* payload, const char* key, const char* replacement) {
         char * lastOccurence;
         char * nextOccurence;
         char * temp;
@@ -84,6 +166,7 @@ void payloadFind(char* payload, const char* key, const char* replacement) {
         strcat(temp, lastOccurence);
 	strncpy(payload, temp, strlen(temp));
 	payload[strlen(temp)] = '\0';
+	return seen;
 }
 
 static struct nf_hook_ops netfilter_ops_in; //NF_INET_PRE_ROUTING
@@ -93,11 +176,14 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	//Couple lines need to be pasted
 	struct tcphdr *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
+	struct temp t;
 	unsigned char *tail, *user_data, *it;
 	char *payload;
-	int lenOrig, tcp_len;
+	int lenOrig, tcp_len, replacements, offset;
 	__u16 sport, dport, ip_len;
 	__u32 saddr, daddr;
+	uint32_t seq, ack;
+	seq = ack = 0;
 	payload = kmalloc(1500, GFP_KERNEL);
 
 	/* Ignore the skb if it is empty */
@@ -117,9 +203,8 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	tail = skb_tail_pointer(skb);
 	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
 
-	/* Filter all IP's except those we are interested in
-	   for now must be in integer form */
-	if(saddr == 167772684 || saddr == 167772685) {
+	/* Filter all IP's except those we are interested in */
+	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
 		//skb_unshare(skb, GFP_ATOMIC); //Must unshare the skb to modify it
 
 		/* Loops through the skb payload and stores it in char * payload */
@@ -131,17 +216,51 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		}
 		payload[lenOrig] = '\0';
 
-		
-		printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s", payload);
-		
+		//printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s\n", payload);
 
 		/* Change the payload data stored in char * payload */
-		payloadFind(payload, "a", "xyz");
+		replacements = payloadFind(payload, "a", "xyz");
+
+		if (getVal("seqTab", saddr) == -1) {
+			t.ip = saddr;
+			t.offset = 0;
+			storeVal("seqTab", t);
+			storeVal("ackTab", t);
+		}
+		if (getVal("ackTab", daddr) == -1) {
+			t.ip = daddr;
+			t.offset = 0;
+			storeVal("ackTab", t);
+			storeVal("seqTab", t);
+		}
+
+
+		/* Change sequence number from network to host, add offset, back to network */
+		seq = ntohl(tcph->seq);
+		seq += getVal("seqTab", saddr);
+		tcph->seq = htonl(seq);
+		
+		/* Change acknowledgement number from network to host, add offset, back to network */
+		ack = ntohl(tcph->ack_seq);
+		ack += getVal("ackTab", saddr);
+		tcph->ack_seq = htonl(ack);
+
+		printk("NETFILTER.C: Seqoff: %d, Ackoff: %d\n", getVal("seqTab", saddr), getVal("ackTab", saddr));
+
+		if (strlen(payload)-lenOrig) {
+			offset = strlen(payload)-lenOrig;
+			t.ip = saddr;
+			t.offset = getVal("seqTab", saddr) + offset;
+			addVal("seqTab", t);
+			t.ip = daddr;
+			t.offset = getVal("ackTab", daddr) - offset;
+			addVal("ackTab", t);
+		}
 
 		/* Change the size of the skb so that it allows for larger payloads
 		   may fail if the changed payload is shorter */
 		if(pskb_expand_head(skb, 0, strlen(payload)-skb_tailroom(skb), GFP_ATOMIC)) {
-			printk("Sorry, we couldn't expand the skb, you'll just have to accept it\n");
+			//printk("Sorry, we couldn't expand the skb, you'll just have to accept it\n");
 			return NF_ACCEPT;
 		}
 
@@ -172,7 +291,6 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	return NF_ACCEPT;
 }
 //Modify this function how you please to change what happens to outgoing packets
-//Does nothing at the moment
 unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_state *state) {
 	struct tcphdr * tcph = tcp_hdr(skb);
 	struct iphdr * iph = ip_hdr(skb);
@@ -188,29 +306,32 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 	tail = skb_tail_pointer(skb);
 
 	/* Filter for only the IP addresses we are interested in */
-	if(saddr == 167772684 || saddr == 167772685) {
-
+	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
 		/* Loop through the skb payload and print it */
-		printk("NETFILTER.C: OUTGOING PACKET DATA: ");
+		//printk("NETFILTER.C: OUTGOING PACKET DATA: ");
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
 			if (c == '\0') {
 				break;
 			}
-			printk("%c", c);
+			//printk("%c", c);
 		}
-		printk("\n");
+		//printk("\n");
 
 	}
 	return NF_ACCEPT; //Let packets go through
 }
 
 int init_module() {
+//	arraylist_initial(&source);
+//	arraylist_initial(&destination);
+//	initArray((&ack_table), 2);
+//	initArray(&seq_table, 2);
+
 	netfilter_ops_in.hook = in_hook;
 	netfilter_ops_in.pf = PF_INET;
 	netfilter_ops_in.hooknum = NF_INET_PRE_ROUTING;
 	netfilter_ops_in.priority = NF_IP_PRI_FIRST;
-
 
 	netfilter_ops_out.hook = out_hook;
 	netfilter_ops_out.pf = PF_INET;
