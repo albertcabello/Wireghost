@@ -1,1 +1,0 @@
-cmd_/media/sf_Wireghost/wireghost.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /media/sf_Wireghost/wireghost.ko /media/sf_Wireghost/wireghost.o /media/sf_Wireghost/wireghost.mod.o
