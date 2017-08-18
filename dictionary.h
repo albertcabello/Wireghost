@@ -6,14 +6,15 @@
 
 //Structure to store the entries in the table
 //Is a linked list
+typedef struct entry entry;
 struct entry {
-	entry *next;
-	__u32 ip;
+	struct entry *next;
+	int ip;
 	int offset;
 };
 
 extern entry * storeVal(struct entry *table[], struct entry add);
-extern entry * getVal(struct entry *table[], __u32 ip);
+extern entry * getVal(struct entry *table[], int ip);
 extern entry * addVal(struct entry *table[], struct entry add);
 extern entry * updateVal(struct entry *table[], struct entry update);
 #endif 
