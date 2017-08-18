@@ -16,20 +16,28 @@ static char * replacementForKey;
 module_param(keyToReplace, charp, 0);
 module_param(replacementForKey, charp, 0);
 
+/* Converts four IP octets to an integer that can be used for comparison */
 static inline int ipToInt(int a, int b, int c, int d) {
+	/* IP to int is first octet * 256^3 + second octet * 256^2 + third octet * 256 + fourth octet */
 	return (a * 16777216) + (b * 65536) + (c * 256) + d;
 }
 
+/* Temporary structure that will be used to store IP entries in tables */
 struct temp {
-	int ip;
+	u32 ip;
 	int offset;
 };
 
+/* Sequence and acknowledgement tables */
 static struct temp seqTab[5];
 static struct temp ackTab[5];
 
+/* Stores the entry t in the table name specified by table 
+ * Is this poor design?  Yes, yes it is.
+ */
 void storeVal(char * table, struct temp t) {
 	int i;
+	/*If you pass "seqTab", store t in the first empty space */
 	if (!strcmp(table, "seqTab")) {
 		for (i = 0; i < 5; i++) {
 			if (!seqTab[i].ip) {
@@ -38,6 +46,7 @@ void storeVal(char * table, struct temp t) {
 			}
 		}
 	}
+	/*If you don't pass "seqTab", store t in the first empty space in ackTab */
 	else {
 		for (i = 0; i < 5; i++) {
 			if (!ackTab[i].ip) {
@@ -47,9 +56,14 @@ void storeVal(char * table, struct temp t) {
 		}
 	}	
 }
-
+/* Adds the offset in entry to the entry already in table.
+ * Like storeVal, uses a string to know which table. 
+ * "Isn't this horrendous code?"
+ * "Absolutely!" */
 void addVal(char * table, struct temp t) {
 	int i;
+	/* If you pass "seqTab", change the value of the offset for the entry
+	 * with an ip equal to t.ip */
 	if (!strcmp(table, "seqTab")) {
 		for (i = 0; i < 5; i++) {
 			if (seqTab[i].ip == t.ip) {
@@ -57,6 +71,7 @@ void addVal(char * table, struct temp t) {
 			}
 		}
 	}
+	/* Otherwise do the same except for the ackTab */
 	else {
 		for (i = 0; i < 5; i++) {
 			if (ackTab[i].ip == t.ip) {
@@ -65,9 +80,15 @@ void addVal(char * table, struct temp t) {
 		}
 	}
 }
-
+/* Gets the entry from table with the specified ip
+ * Like the previous two, uses a string to specify the table
+ * "Cmon, THREE TIMES this horrible code?!?!?"
+ * "Yeah, sorry ¯\_(ツ)_/¯"
+ */
 int getVal(char * table, int ip) {
 	int i;
+	/* If you pass "seqTab", return the offset of the entry with 
+	 * the given ip */
 	if (!strcmp(table, "seqTab")) {
 		for (i = 0; i < 5; i++) {
 			if (seqTab[i].ip == ip) {
@@ -75,6 +96,7 @@ int getVal(char * table, int ip) {
 			}
 		}
 	}
+	/* Same as above except for ackTab */
 	else {
 		for (i = 0; i < 5; i++) {
 			if (ackTab[i].ip == ip) {
@@ -82,46 +104,65 @@ int getVal(char * table, int ip) {
 			}
 		}
 	}
+	/* The given ip does not have an entry
+	 * probably not a good idea in the case that the offset
+	 * is actually -1
+	 */
 	return -1;
 }
 
+/* Jokes aside, those last three functions are horribly written
+ * and terrible for performance.  A table with too many IP's would be 
+ * incredibly slow. Currently I am writing an actual hash table in dictionary.c
+ * which would replace the last three functions, and no, there won't be string
+ * arguments :) */
+
+/* Given payload, replace every occurence of key in payload with replacement, payload modified in place
+ * returns the amount of times key was replaced */
 int payloadFind(char* payload, const char* key, const char* replacement) {
-        char * lastOccurence;
-        char * nextOccurence;
-        char * temp;
-        int seen;
+        char * lastOccurence; //Last occurence of key
+        char * nextOccurence; //Next occurence of key
+        char * temp; //Temporary array to store the new payload
+        int seen; //Amount of times key has been replaced
         temp = kmalloc(1500, GFP_KERNEL);
         seen = 0;
         nextOccurence = strstr(payload, key);
         lastOccurence = (char *)payload;
         while (nextOccurence != NULL) {
                 seen++;
-//              temp = realloc(temp, strlen(payload)-seen*(strlen(key)+strlen(replacement)));
-                strncat(temp, lastOccurence, nextOccurence-lastOccurence);
-                strcat(temp, replacement);
-                lastOccurence = nextOccurence+strlen(key);
-                nextOccurence = strstr(nextOccurence+1, key);
+                strncat(temp, lastOccurence, nextOccurence-lastOccurence); //Cat to temp from lastOccurence to nextOccurence
+                strcat(temp, replacement); //Cat the replacement
+                lastOccurence = nextOccurence+strlen(key); //Change lastOccurence to currentOccurence 
+                nextOccurence = strstr(nextOccurence+1, key); //nextOccurence to the actual next occurence
         }
-//      temp = realloc(temp, (strlen(payload)-seen*(strlen(key)+strlen(replacement))+strlen(lastOccurence)));
-        strcat(temp, lastOccurence);
-	strncpy(payload, temp, strlen(temp));
-	payload[strlen(temp)] = '\0';
-	return seen;
+        strcat(temp, lastOccurence); //Cat from the last occurence to the end of payload to temp
+	strncpy(payload, temp, strlen(temp)); //Assign to payload temp
+	payload[strlen(temp)] = '\0'; //Cat the null char
+	kfree(temp);
+	return seen; //Return replacements 
 }
 
 static struct nf_hook_ops netfilter_ops_in; //NF_INET_PRE_ROUTING
 static struct nf_hook_ops netfilter_ops_out; //NF_INET_POST_ROUTING
 //Modify this function how you please to change what happens to incoming packets
 unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_state *state) {
-	//Couple lines need to be pasted
+	/* TCP and IP headers */
 	struct tcphdr *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
+	/* Structure that will be assigned to the seq and ack tables when needed */
 	struct temp t;
+	/* char * to end of payload, beginning of payload and an iterator */
 	unsigned char *tail, *user_data, *it;
+	/* char * to store the payload */
 	char *payload;
+	/* Length of original payload, length of tcp header, number of replacements done to payload
+	 * the sequence and acknowledgement offsets, multipurpose iterator (for loops, while, etc) */
 	int lenOrig, tcp_len, replacements, offset, i;
+	/* Source port, destination port and the ip header length */
 	__u16 sport, dport, ip_len;
+	/* Source IP address and destination IP address */
 	__u32 saddr, daddr;
+	/* Sequence and acknowledgement numbers */
 	uint32_t seq, ack;
 	seq = ack = 0;
 	payload = kmalloc(1500, GFP_KERNEL);
@@ -158,18 +199,26 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 		//printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s\n", payload);
 
-		/* Change the payload data stored in char * payload */
-		replacements = payloadFind(payload, "a", "xyz");
+		/* If keyToReplace or replacementForKey weren't passed in, don't change the packet
+		 * and if we're not changing anything, just accept it anyways */
+		if (!keyToReplace || !replacementForKey) {
+			return NF_ACCEPT;
+		}
 
+		/* Change the payload data stored in char * payload */
+		replacements = payloadFind(payload, keyToReplace, replacementForKey);
+
+		/* If the acknowledgement table doesn't have an entry for the source IP
+		 * create an entry and store it in both the sequence and acknowledgement table 
+		 * with a default offset of 0 */
 		if (getVal("ackTab", saddr) == -1) {
-			//printk("Acktab saddr, -1\n");
 			t.ip = saddr;
 			t.offset = 0;
 			storeVal("ackTab", t);
 			storeVal("seqTab", t);
 		}
+		/* Same as the the above statement except for the destination IP */
 		if (getVal("ackTab", daddr) == -1) {
-			//printk("Acktab daddr, -1\n");
 			t.ip = daddr;
 			t.offset = 0;
 			storeVal("ackTab", t);
@@ -186,6 +235,13 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		ack += getVal("ackTab", saddr);
 		tcph->ack_seq = htonl(ack);
 
+		/* If the length of the outgoing packet is different from the original payload
+		 * the acknowledgement and sequence numbers will be off. This will cause the two 
+		 * computers to start arguing amongst each other.  The offset between the correct
+		 * acknowledgement and sequence number is the difference between the old payload 
+		 * and the new payload + all the past difference.
+		 *
+		 * So add the new difference to the offset for all future packets */
 		if (strlen(payload) != lenOrig) {
 			offset = strlen(payload)-lenOrig;
 			t.ip = saddr;
@@ -208,6 +264,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		iph = ip_hdr(skb);
 
 		/* Reserve space in the skb for the data */
+		/* THIS BREAKS IF THE PAYLOAD IS NOT ASCII */
 		skb_put(skb, strlen(payload)-lenOrig);
 
 		/* memcpy into user_data the modified payload */
@@ -220,6 +277,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		iph->tot_len = htons(ip_len);
 
 		/* Update TCP and IP checksums */
+		/* THIS DOESNT WORK ON NON LINEAR SKB */
 		tcp_len = skb->len - 4 * iph->ihl;
 		iph->ttl += 1;
 		ip_send_check(iph);
@@ -227,6 +285,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		tcph->check = tcp_v4_check(tcp_len, iph->saddr, iph->daddr, csum_partial((char *)tcph, tcp_len, 0));
 
 	}
+	kfree(payload);
 	return NF_ACCEPT;
 }
 //Modify this function how you please to change what happens to outgoing packets
