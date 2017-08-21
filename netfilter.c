@@ -6,7 +6,7 @@
 #include<linux/tcp.h>
 #include<net/ip.h>
 #include<net/tcp.h>
-#include<linux/hashtable.h>
+#include "dictionary.h" 
 
 // Parameters to be passed to the module
 static char * keyToReplace;
@@ -16,106 +16,18 @@ static char * replacementForKey;
 module_param(keyToReplace, charp, 0);
 module_param(replacementForKey, charp, 0);
 
+//Sequence and acknowledgement tables
+entry* seqTable[HASH_TABLE_SIZE];
+entry* ackTable[HASH_TABLE_SIZE];
+
 /* Converts four IP octets to an integer that can be used for comparison */
 static inline int ipToInt(int a, int b, int c, int d) {
 	/* IP to int is first octet * 256^3 + second octet * 256^2 + third octet * 256 + fourth octet */
-	return (a * 16777216) + (b * 65536) + (c * 256) + d;
+	//return (a * 16777216) + (b * 65536) + (c * 256) + d;
+	/* Bit shifting is quicker than multiplication
+	 * 2^24 = 256^3, 2^16 = 256^2, 256 = 2^8 */
+	return (a << 24) + (b << 16) + (c << 8) + d;
 }
-
-/* Temporary structure that will be used to store IP entries in tables */
-struct temp {
-	u32 ip;
-	int offset;
-};
-
-/* Sequence and acknowledgement tables */
-static struct temp seqTab[5];
-static struct temp ackTab[5];
-
-/* Stores the entry t in the table name specified by table 
- * Is this poor design?  Yes, yes it is.
- */
-void storeVal(char * table, struct temp t) {
-	int i;
-	/*If you pass "seqTab", store t in the first empty space */
-	if (!strcmp(table, "seqTab")) {
-		for (i = 0; i < 5; i++) {
-			if (!seqTab[i].ip) {
-				seqTab[i] = t;
-				return;
-			}
-		}
-	}
-	/*If you don't pass "seqTab", store t in the first empty space in ackTab */
-	else {
-		for (i = 0; i < 5; i++) {
-			if (!ackTab[i].ip) {
-				ackTab[i] = t;
-				return;
-			}
-		}
-	}	
-}
-/* Adds the offset in entry to the entry already in table.
- * Like storeVal, uses a string to know which table. 
- * "Isn't this horrendous code?"
- * "Absolutely!" */
-void addVal(char * table, struct temp t) {
-	int i;
-	/* If you pass "seqTab", change the value of the offset for the entry
-	 * with an ip equal to t.ip */
-	if (!strcmp(table, "seqTab")) {
-		for (i = 0; i < 5; i++) {
-			if (seqTab[i].ip == t.ip) {
-				seqTab[i].offset = t.offset;
-			}
-		}
-	}
-	/* Otherwise do the same except for the ackTab */
-	else {
-		for (i = 0; i < 5; i++) {
-			if (ackTab[i].ip == t.ip) {
-				ackTab[i].offset = t.offset;
-			}
-		}
-	}
-}
-/* Gets the entry from table with the specified ip
- * Like the previous two, uses a string to specify the table
- * "Cmon, THREE TIMES this horrible code?!?!?"
- * "Yeah, sorry ¯\_(ツ)_/¯"
- */
-int getVal(char * table, int ip) {
-	int i;
-	/* If you pass "seqTab", return the offset of the entry with 
-	 * the given ip */
-	if (!strcmp(table, "seqTab")) {
-		for (i = 0; i < 5; i++) {
-			if (seqTab[i].ip == ip) {
-				return seqTab[i].offset;
-			}
-		}
-	}
-	/* Same as above except for ackTab */
-	else {
-		for (i = 0; i < 5; i++) {
-			if (ackTab[i].ip == ip) {
-				return ackTab[i].offset;
-			}
-		}
-	}
-	/* The given ip does not have an entry
-	 * probably not a good idea in the case that the offset
-	 * is actually -1
-	 */
-	return -1;
-}
-
-/* Jokes aside, those last three functions are horribly written
- * and terrible for performance.  A table with too many IP's would be 
- * incredibly slow. Currently I am writing an actual hash table in dictionary.c
- * which would replace the last three functions, and no, there won't be string
- * arguments :) */
 
 /* Given payload, replace every occurence of key in payload with replacement, payload modified in place
  * returns the amount of times key was replaced */
@@ -150,7 +62,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	struct tcphdr *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
 	/* Structure that will be assigned to the seq and ack tables when needed */
-	struct temp t;
+	struct entry t;
 	/* char * to end of payload, beginning of payload and an iterator */
 	unsigned char *tail, *user_data, *it;
 	/* char * to store the payload */
@@ -211,28 +123,28 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		/* If the acknowledgement table doesn't have an entry for the source IP
 		 * create an entry and store it in both the sequence and acknowledgement table 
 		 * with a default offset of 0 */
-		if (getVal("ackTab", saddr) == -1) {
+		if (!getVal(seqTable, saddr)) {
 			t.ip = saddr;
 			t.offset = 0;
-			storeVal("ackTab", t);
-			storeVal("seqTab", t);
+			storeVal(ackTable, t);
+			storeVal(seqTable, t);
 		}
 		/* Same as the the above statement except for the destination IP */
-		if (getVal("ackTab", daddr) == -1) {
+		if (!getVal(ackTable, daddr)) {
 			t.ip = daddr;
 			t.offset = 0;
-			storeVal("ackTab", t);
-			storeVal("seqTab", t);
+			storeVal(ackTable, t);
+			storeVal(seqTable, t);
 		}
 
 		/* Change sequence number from network to host, add offset, back to network */
 		seq = ntohl(tcph->seq);
-		seq += getVal("seqTab", saddr);
+		seq += getVal(seqTable, saddr)->offset;
 		tcph->seq = htonl(seq);
 		
 		/* Change acknowledgement number from network to host, add offset, back to network */
 		ack = ntohl(tcph->ack_seq);
-		ack += getVal("ackTab", saddr);
+		ack += getVal(ackTable, saddr)->offset;
 		tcph->ack_seq = htonl(ack);
 
 		/* If the length of the outgoing packet is different from the original payload
@@ -245,11 +157,11 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		if (strlen(payload) != lenOrig) {
 			offset = strlen(payload)-lenOrig;
 			t.ip = saddr;
-			t.offset = getVal("seqTab", saddr) + offset;
-			addVal("seqTab", t);
+			t.offset = getVal(seqTable, saddr)->offset + offset;
+			storeVal(seqTable, t);
 			t.ip = daddr;
-			t.offset = getVal("ackTab", daddr) - offset;
-			addVal("ackTab", t);
+			t.offset = getVal(ackTable, daddr)->offset - offset;
+			storeVal(ackTable, t);
 		}
 
 		/* Change the size of the skb so that it allows for larger payloads
