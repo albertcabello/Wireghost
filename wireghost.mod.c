@@ -21,6 +21,7 @@ __attribute__((section("__versions"))) = {
 	{ 0x84f43e8d, __VMLINUX_SYMBOL_STR(kmalloc_caches) },
 	{ 0x4489da02, __VMLINUX_SYMBOL_STR(register_sysctl_table) },
 	{ 0x754d539c, __VMLINUX_SYMBOL_STR(strlen) },
+	{ 0xf2a8b65e, __VMLINUX_SYMBOL_STR(skb_copy) },
 	{ 0x2124474, __VMLINUX_SYMBOL_STR(ip_send_check) },
 	{ 0xe4a30d0e, __VMLINUX_SYMBOL_STR(nf_register_hook) },
 	{ 0xebc22bc0, __VMLINUX_SYMBOL_STR(param_ops_string) },
@@ -30,11 +31,9 @@ __attribute__((section("__versions"))) = {
 	{ 0x1e6d26a8, __VMLINUX_SYMBOL_STR(strstr) },
 	{ 0x71828a66, __VMLINUX_SYMBOL_STR(proc_dostring) },
 	{ 0x61651be, __VMLINUX_SYMBOL_STR(strcat) },
-	{ 0xc2048649, __VMLINUX_SYMBOL_STR(__alloc_skb) },
 	{ 0xa06ff399, __VMLINUX_SYMBOL_STR(unregister_sysctl_table) },
 	{ 0xe16bca7a, __VMLINUX_SYMBOL_STR(pskb_expand_head) },
 	{ 0xbdfb6dbb, __VMLINUX_SYMBOL_STR(__fentry__) },
-	{ 0xcfa218f, __VMLINUX_SYMBOL_STR(__pskb_copy_fclone) },
 	{ 0x910e0dc, __VMLINUX_SYMBOL_STR(kmem_cache_alloc_trace) },
 	{ 0xcf8262b6, __VMLINUX_SYMBOL_STR(nf_unregister_hook) },
 	{ 0x37a0cba, __VMLINUX_SYMBOL_STR(kfree) },
@@ -50,4 +49,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "77E5EE74F30C6ABADC44C78");
+MODULE_INFO(srcversion, "3DB04C7F877D558F69ABA29");

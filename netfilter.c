@@ -121,32 +121,20 @@ void fixChecksums(struct sk_buff * skb) {
 
 }
 
-/*STORY TIME!!!!
-The following if statement does in fact send packets, hooray!
-The problem is, it sends them to itself and the packets never 
-leave this computer, not hooray! I can get the packets to leave this
-computer by removing the ethernet header though. "But Alberto, if removing
-the ethernet header works, why don't you do it?" Ah my friend, if I do remove it
-then the packets go to the other computers, but because there's no mac address
-A bunch of the packet is cut off because the computer assumes that the beginning
-of the packet is the mac addresses and the protocol, what do I do now?
-I don't know.
-*/
-
 //Causes arpstorm currently, which means its some seq/ack issue
-int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, int lenOrig) {
+int injectNewPacket(struct sk_buff *orig, int saddr, int daddr) {
 	struct entry t;
 	struct sk_buff *skb;
 	struct tcphdr *ntcph;
 	struct ethhdr *ethh = eth_hdr(orig);
 	unsigned char *user_data;
+	char * message = "ZZZ";
 	uint32_t seq, ack;
 	int offset;
 
 	/* Allocate a socket buffer and assign it to be a copy of the
 	one passed to us by netfilter */
-	skb = alloc_skb(orig->len, GFP_ATOMIC);
-	skb = pskb_copy(orig, GFP_ATOMIC);
+	skb = skb_copy(orig, GFP_ATOMIC);
 
 	/*Create pointer to tcp header*/
 	ntcph = tcp_hdr(skb);
@@ -155,46 +143,27 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, int lenOrig) {
 	//to it causing a ttl of 65
 	ip_hdr(skb)->ttl -= 1;
 
-	/*pskb_copy does not give us the ethernet header, so create it */
-//	nethh = eth_hdr(skb);
+	seq = ntohl(ntcph->seq);
+	printk("NETFILTER.C: SeqOff: %u, AckOff: %u\n", getVal(seqTable, saddr)->offset, getVal(ackTable, saddr)->offset);
+	seq += getVal(seqTable, saddr)->offset;
+	ntcph->seq = htonl(seq);
 
-//	/*memcpy to the new skb's ethernet header the destination
-//	address in the original skb, do the same for the source */
-//	memcpy(nethh->h_dest, ethh->h_dest, ETH_ALEN);
-//	memcpy(nethh->h_source, ethh->h_source, ETH_ALEN);
-//
-//	//printk("NETFILTER.C: SOURCE MAC: %x:%x:%x", nethh->h_source[3], nethh->h_source[4], nethh->h_source[5]);
-//	//printk(" DEST MAC: %x:%x:%x\n", nethh->h_dest[3], nethh->h_dest[4], nethh->h_dest[5]);
-//
-//	/*Assign the ethernet packets protocol (ETH_P_IP - 0x0800 which is IPv4) */
-//	nethh->h_proto = ETH_P_IP;
+	ack = ntohl(ntcph->ack);
+	ack += getVal(ackTable, saddr)->offset;
+	ntcph->ack = htonl(ack);
 
-//	memcpy(nethh, eth_hdr(orig), sizeof(ethhdr));
+	/* Just to differentiate the duplicates easier, change packet to message
+	* again, may fail if payload is shorter*/
+	if(pskb_expand_head(skb, 0, strlen(message)-skb_tailroom(skb), GFP_ATOMIC)) {
+		return -ENOMEM;
+	}
 
-	/* Just to differentiate the duplicates easier, set the first 3 chars to capital H */
 	ntcph = tcp_hdr(skb);
 	user_data = (unsigned char *)((unsigned char *)ntcph + (ntcph->doff * 4));
-	memcpy(user_data, "ZZZ", 3);
-
-	dev_hard_header(skb, orig->dev, ETH_P_IP, ethh->h_source, ethh->h_dest, orig->dev->addr_len);
-
-	/* The next four lines accomplish the same thing as
-	the dev_hard_header function, neither of which work right
-	et = skb_push(skb, ETH_HLEN);
-	memcpy(et, nethh->h_dest, ETH_ALEN);
-	memcpy(et+ETH_ALEN, nethh->h_source, ETH_ALEN);
-	skb->protocol = nethh->h_proto = ntohs(ETH_P_IP); */
-
-	
-//	seq = ntohl(ntcph->seq);
-//	seq += getVal(seqTable, saddr)->offset;
-//	ntcph->seq = htonl(seq);
-//
-//	ack = ntohl(ntcph->seq);
-//	ack += getVal(ackTable, saddr)->offset;
-//	ntcph->ack = htonl(seq);
+	memcpy(user_data, message, strlen(message));
 
 	offset = skb_tail_pointer(skb)-user_data;
+	printk("NETFILTER.C: Offset: %u InjSeq: %u OrigSeq: %u Diff: %u\n", offset, seq, tcp_hdr(orig)->seq, seq-(tcp_hdr(orig)->seq));
 	t.ip = saddr;
 	t.offset = getVal(seqTable, saddr)->offset + offset;
 	storeVal(seqTable, t);
@@ -203,6 +172,14 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, int lenOrig) {
 	storeVal(ackTable, t);
 
 	fixChecksums(skb);
+
+	ethh->h_dest[0] = 0x08;
+	ethh->h_dest[1] = 0x00;
+	ethh->h_dest[2] = 0x27;
+	ethh->h_dest[3] = 0x7c;
+	ethh->h_dest[4] = 0xbc;
+	ethh->h_dest[5] = 0x81;
+	dev_hard_header(skb, orig->dev, ETH_P_IP, ethh->h_dest, ethh->h_source, orig->dev->addr_len);
 
 	return dev_queue_xmit(skb);
 }
@@ -294,8 +271,8 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 			storeVal(seqTable, t);
 		}
 
-		if (strstr(payload, "hhh")) { //Change condition to whatever
-			injectNewPacket(skb, saddr, daddr, lenOrig);
+		if (strstr(payload, "hhh") && saddr == ipToInt(10,0,2,13)) { //Change condition to whatever
+			injectNewPacket(skb, saddr, daddr);
 		}
 
 		/* Change sequence number from network to host, add offset, back to network */
@@ -307,7 +284,6 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		ack = ntohl(tcph->ack_seq);
 		ack += getVal(ackTable, saddr)->offset;
 		tcph->ack_seq = htonl(ack);
-
 
 		/* If the length of the outgoing packet is different from the original payload
 		 * the acknowledgement and sequence numbers will be off. This will cause the two 
