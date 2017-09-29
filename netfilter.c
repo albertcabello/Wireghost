@@ -122,7 +122,7 @@ void fixChecksums(struct sk_buff * skb) {
 }
 
 //Causes arpstorm currently, which means its some seq/ack issue
-int injectNewPacket(struct sk_buff *orig, int saddr, int daddr) {
+int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, const struct nf_hook_state *state) {
 	struct entry t;
 	struct sk_buff *skb;
 	struct tcphdr *ntcph;
@@ -163,7 +163,6 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr) {
 	memcpy(user_data, message, strlen(message));
 
 	offset = skb_tail_pointer(skb)-user_data;
-	printk("NETFILTER.C: Offset: %u InjSeq: %u OrigSeq: %u Diff: %u\n", offset, seq, tcp_hdr(orig)->seq, seq-(tcp_hdr(orig)->seq));
 	t.ip = saddr;
 	t.offset = getVal(seqTable, saddr)->offset + offset;
 	storeVal(seqTable, t);
@@ -173,19 +172,18 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr) {
 
 	fixChecksums(skb);
 
-	ethh->h_dest[0] = 0x08;
-	ethh->h_dest[1] = 0x00;
-	ethh->h_dest[2] = 0x27;
-	ethh->h_dest[3] = 0x7c;
-	ethh->h_dest[4] = 0xbc;
-	ethh->h_dest[5] = 0x81;
-	dev_hard_header(skb, orig->dev, ETH_P_IP, ethh->h_dest, ethh->h_source, orig->dev->addr_len);
-
-	return dev_queue_xmit(skb);
+	/* Whoever, in their right mind designed this _abomination_
+	* needs to be smacked upside the head.  why even bother
+	* asking for a reference to a socket if it can be NULL.
+	* Furthermore, the socket is given to netfilter as NULL.
+	* Nowhere have I ever seen it populated!!!! They should just remove it,
+	* but it works -_-. */
+	return state->okfn(dev_net(orig->dev), NULL, skb);
 }
 	
 //Modify this function how you please to change what happens to incoming packets
 unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_state *state) {
+	struct sk_buff *nskb;
 	/* TCP, IP, and Ethernet headers */
 	struct tcphdr *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
@@ -210,10 +208,11 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	/* Ignore the skb if it is empty */
 	if (!skb)
 		return NF_ACCEPT;
-
+	
 	if (iph->protocol == IPPROTO_ICMP) {
 		printk("NETFILTER.C: Ping packet incoming\n");
 	}
+
 
 	/* Convert the source IP address (saddr), source port (sport), 
 	   destination IP address (daddr), and destination port (dport)
@@ -241,9 +240,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		}
 		payload[lenOrig] = '\0';
 
-
-
-		//printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s\n", payload);
+		printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s", payload);
 
 		/* If keyToReplace or replacementForKey weren't passed in, don't change the packet
 		 * and if we're not changing anything, just accept it anyways */
@@ -272,7 +269,13 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		}
 
 		if (strstr(payload, "hhh") && saddr == ipToInt(10,0,2,13)) { //Change condition to whatever
-			injectNewPacket(skb, saddr, daddr);
+			printk("NETFILTER.C: Inject a packet\n");
+			injectNewPacket(skb, saddr, daddr, state);
+//			user_data = (unsigned char *)((unsigned char *)tcp_hdr(nskb) + tcp_hdr(nskb)->doff * 4);
+//			memcpy(user_data, "ZZZ", 3);
+//			printk("NETFILTER.C: okfn return: %d\n", state->okfn(dev_net(skb->dev), NULL, skb_copy(skb, GFP_ATOMIC)));
+//			nskb = skb_copy(skb, GFP_ATOMIC);
+//			state->okfn(dev_net(skb->dev), NULL, nskb);
 		}
 
 		/* Change sequence number from network to host, add offset, back to network */
@@ -338,10 +341,13 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 	struct tcphdr * tcph = tcp_hdr(skb);
 	struct iphdr * iph = ip_hdr(skb);
 	unsigned char *user_data, *it, *tail;
-	u32 saddr;
+	u32 saddr, daddr;
+	int lenOrig = 0;
+	char * payload = kmalloc(1500, GFP_KERNEL);;
 
 	/* Convert source IP address from network format to host format */
 	saddr = ntohl(iph->saddr);
+	daddr = ntohl(iph->daddr);
 
 	/* Same as above, user_data points to beginning of payload and tail 
 	   points to the end of the payload */
@@ -352,15 +358,13 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
 		/* Loop through the skb payload and print it */
 		//printk("NETFILTER.C: OUTGOING PACKET DATA: ");
+		lenOrig = 0;
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
-			if (c == '\0') {
-				break;
-			}
-			//printk("%c", c);
+			payload[lenOrig] = c;
+			lenOrig++;
 		}
-		//printk("\n");
-
+		payload[lenOrig] = '\0';
 	}
 	return NF_ACCEPT; //Let packets go through
 }

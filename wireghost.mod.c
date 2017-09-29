@@ -39,7 +39,6 @@ __attribute__((section("__versions"))) = {
 	{ 0x37a0cba, __VMLINUX_SYMBOL_STR(kfree) },
 	{ 0x69acdf38, __VMLINUX_SYMBOL_STR(memcpy) },
 	{ 0xe113bbbc, __VMLINUX_SYMBOL_STR(csum_partial) },
-	{ 0x24ad15ed, __VMLINUX_SYMBOL_STR(dev_queue_xmit) },
 	{ 0xe8914f18, __VMLINUX_SYMBOL_STR(skb_put) },
 };
 
@@ -49,4 +48,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "3DB04C7F877D558F69ABA29");
+MODULE_INFO(srcversion, "B123C68A4D8AF0A6BD64085");
