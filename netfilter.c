@@ -132,6 +132,7 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, const struct nf_
 	uint32_t seq, ack;
 	int offset;
 
+
 	/* Allocate a socket buffer and assign it to be a copy of the
 	one passed to us by netfilter */
 	skb = skb_copy(orig, GFP_ATOMIC);
@@ -144,13 +145,12 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, const struct nf_
 	ip_hdr(skb)->ttl -= 1;
 
 	seq = ntohl(ntcph->seq);
-	printk("NETFILTER.C: SeqOff: %u, AckOff: %u\n", getVal(seqTable, saddr)->offset, getVal(ackTable, saddr)->offset);
 	seq += getVal(seqTable, saddr)->offset;
 	ntcph->seq = htonl(seq);
 
-	ack = ntohl(ntcph->ack);
+	ack = ntohl(ntcph->ack_seq);
 	ack += getVal(ackTable, saddr)->offset;
-	ntcph->ack = htonl(ack);
+	ntcph->ack_seq = htonl(ack);
 
 	/* Just to differentiate the duplicates easier, change packet to message
 	* again, may fail if payload is shorter*/
@@ -172,13 +172,8 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, const struct nf_
 
 	fixChecksums(skb);
 
-	/* Whoever, in their right mind designed this _abomination_
-	* needs to be smacked upside the head.  why even bother
-	* asking for a reference to a socket if it can be NULL.
-	* Furthermore, the socket is given to netfilter as NULL.
-	* Nowhere have I ever seen it populated!!!! They should just remove it,
-	* but it works -_-. */
 	return state->okfn(dev_net(orig->dev), NULL, skb);
+	//return nf_hook(NFPROTO_IPV4, NF_INET_LOCAL_OUT, dev_net(orig->dev), NULL, skb, NULL, skb_dst(skb)->dev, dst_output);
 }
 	
 //Modify this function how you please to change what happens to incoming packets
@@ -229,7 +224,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 	/* Filter all IP's except those we are interested in */
 	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
-		//skb_unshare(skb, GFP_ATOMIC); //Must unshare the skb to modify it
+		printk("NETFILTER.C: Skb mark: %d\n", skb->mark);
 
 		/* Loops through the skb payload and stores it in char * payload */
 		lenOrig = 0;
@@ -240,7 +235,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		}
 		payload[lenOrig] = '\0';
 
-		printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s", payload);
+//		printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s", payload);
 
 		/* If keyToReplace or replacementForKey weren't passed in, don't change the packet
 		 * and if we're not changing anything, just accept it anyways */
@@ -268,7 +263,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 			storeVal(seqTable, t);
 		}
 
-		if (strstr(payload, "hhh") && saddr == ipToInt(10,0,2,13)) { //Change condition to whatever
+		if (strstr(payload, "hhh")) { //Change condition to whatever
 			printk("NETFILTER.C: Inject a packet\n");
 			injectNewPacket(skb, saddr, daddr, state);
 //			user_data = (unsigned char *)((unsigned char *)tcp_hdr(nskb) + tcp_hdr(nskb)->doff * 4);
@@ -356,6 +351,7 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 
 	/* Filter for only the IP addresses we are interested in */
 	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
+//		printk("NETFILTER.C: Skb mark: %d\n", skb->mark);
 		/* Loop through the skb payload and print it */
 		//printk("NETFILTER.C: OUTGOING PACKET DATA: ");
 		lenOrig = 0;
