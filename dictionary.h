@@ -10,7 +10,7 @@
 typedef struct entry entry;
 struct entry {
 	struct entry *next;
-	int ip;
+	unsigned char *ip;
 	int offset;
 };
 
@@ -19,5 +19,5 @@ extern entry* seqTable[HASH_TABLE_SIZE];
 extern entry* ackTable[HASH_TABLE_SIZE];
 
 extern entry* storeVal(struct entry **table, struct entry add);
-extern entry* getVal(struct entry **table, int ip);
+extern entry* getVal(struct entry **table, unsigned char *ip);
 #endif 

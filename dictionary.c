@@ -2,20 +2,24 @@
 #include<linux/slab.h>
 #include<linux/module.h>
 
-/* Hashes an IP address, not great but works */
-unsigned int hash(int ip) {
-	return ip * 31 % HASH_TABLE_SIZE;
+unsigned long hash(unsigned char *str) {
+	unsigned long hash = 5381;
+	int c;
+	while (c = *str++) {
+		hash = ((hash << 5) + hash) + c;
+	}
+	return hash % HASH_TABLE_SIZE;
 }
 
 /* Retrieves an entry for the given IP address
  * from the given table. Return NULL if not found
  * or a pointer to the entry if it was found */
-entry * getVal(entry **table, int ip) {
+entry * getVal(entry **table, unsigned char *ip) {
 	entry * try;
 	//Loop through linked list for bucket hash(ip);
 	for (try = table[hash(ip)]; try != NULL; try = try->next) {
 		/* If IP's are equal, return the entry */
-		if (try->ip == ip) {
+		if (!strcmp(try->ip, ip)) {
 			return try;
 		}
 	}
@@ -55,16 +59,43 @@ entry * storeVal(entry **table, entry val) {
 	}
 	else { //Found an existing entry
 		/* Reassign entry */
-		try = kmalloc(sizeof(entry), GFP_KERNEL);
-		if (try == NULL) { //Malloc failed
-			return NULL;
-		}
-		/* Assign try to parameter */
+		entry *next = try->next;
 		*try = val;
-		/* Start the linked list with try as only entry */
-		table[hash(val.ip)] = try;
+		try->next = next;
 	}
 	/* Return entry */
 	return try; 
 }
 
+/* If changes need to be made to the dictionary,
+use this to test if it still works, at the end,
+the ip of 72 should have offset 1000 and everything 
+will have it's ip + 10 
+*/
+
+/*
+int main() {
+        int i = 0;
+        for (i = 0; i < 100; i++) {
+                entry t;
+                t.ip = i;
+                t.offset = i+10;
+                storeVal(seqTable, t);
+        }
+        entry t;
+        t.ip = 72;
+        t.offset= 1000;
+        storeVal(seqTable, t);
+        for (i = 0; i < 10; i++) {
+                entry *try;
+                for (try = seqTable[i]; try != NULL; try = try->next) {
+//                      If IP's are equal, return the entry
+//                      if (try->ip == ip) {
+//                              return try;
+//                      }
+                        printf("[IP: %d | Offset %d]->", try->ip, try->offset);
+                }
+                printf("NULL\n");
+        }
+        return 0;
+} */

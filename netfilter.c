@@ -121,12 +121,10 @@ void fixChecksums(struct sk_buff * skb) {
 
 }
 
-//Causes arpstorm currently, which means its some seq/ack issue
-int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, const struct nf_hook_state *state) {
+int injectNewPacket(struct sk_buff *orig, unsigned char *sourceKey, unsigned char *destKey, const struct nf_hook_state *state) {
 	struct entry t;
 	struct sk_buff *skb;
 	struct tcphdr *ntcph;
-	struct ethhdr *ethh = eth_hdr(orig);
 	unsigned char *user_data;
 	char * message = "ZZZ";
 	uint32_t seq, ack;
@@ -145,11 +143,11 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, const struct nf_
 	ip_hdr(skb)->ttl -= 1;
 
 	seq = ntohl(ntcph->seq);
-	seq += getVal(seqTable, saddr)->offset;
+	seq += getVal(seqTable, sourceKey)->offset;
 	ntcph->seq = htonl(seq);
 
 	ack = ntohl(ntcph->ack_seq);
-	ack += getVal(ackTable, saddr)->offset;
+	ack += getVal(ackTable, sourceKey)->offset;
 	ntcph->ack_seq = htonl(ack);
 
 	/* Just to differentiate the duplicates easier, change packet to message
@@ -163,11 +161,11 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, const struct nf_
 	memcpy(user_data, message, strlen(message));
 
 	offset = skb_tail_pointer(skb)-user_data;
-	t.ip = saddr;
-	t.offset = getVal(seqTable, saddr)->offset + offset;
+	t.ip = sourceKey;
+	t.offset = getVal(seqTable, sourceKey)->offset + offset;
 	storeVal(seqTable, t);
-	t.ip = daddr;
-	t.offset = getVal(ackTable, daddr)->offset - offset;
+	t.ip = destKey;
+	t.offset = getVal(ackTable, destKey)->offset - offset;
 	storeVal(ackTable, t);
 
 	fixChecksums(skb);
@@ -178,14 +176,13 @@ int injectNewPacket(struct sk_buff *orig, int saddr, int daddr, const struct nf_
 	
 //Modify this function how you please to change what happens to incoming packets
 unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_state *state) {
-	struct sk_buff *nskb;
 	/* TCP, IP, and Ethernet headers */
 	struct tcphdr *tcph = tcp_hdr(skb);
 	struct iphdr *iph = ip_hdr(skb);
 	/* Structure that will be assigned to the seq and ack tables when needed */
 	struct entry t;
 	/* char * to end of payload, beginning of payload and an iterator */
-	unsigned char *tail, *user_data, *it;
+	unsigned char *tail, *user_data, *it, *sourceKey, *destKey;
 	/* char * to store the payload and the second packet payload */
 	char *payload;
 	/* Length of original payload, length of tcp header, number of replacements done to payload
@@ -199,6 +196,8 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	uint32_t seq, ack;
 	seq = ack = 0;
 	payload = kmalloc(1500, GFP_KERNEL);
+	sourceKey = kmalloc(25, GFP_KERNEL);
+	destKey = kmalloc(25, GFP_KERNEL);
 
 	/* Ignore the skb if it is empty */
 	if (!skb)
@@ -216,6 +215,10 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	daddr = ntohl(iph->daddr);
 	sport = ntohs(tcph->source);
 	dport = ntohs(tcph->dest);
+	
+	sprintf(sourceKey, "%u:%u", saddr, sport);
+	sprintf(destKey, "%u:%u", daddr, dport);
+
 
 	/* User_data points to the beginning of the payload in the skb
 	   tail points to the end of the payload in skb */
@@ -224,8 +227,6 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 	/* Filter all IP's except those we are interested in */
 	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
-		printk("NETFILTER.C: Skb mark: %d\n", skb->mark);
-
 		/* Loops through the skb payload and stores it in char * payload */
 		lenOrig = 0;
 		for (it = user_data; it != tail; ++it) {
@@ -234,8 +235,6 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 			lenOrig++;
 		}
 		payload[lenOrig] = '\0';
-
-//		printk("NETFILTER.C: DATA OF ORIGINAL SKB: %s", payload);
 
 		/* If keyToReplace or replacementForKey weren't passed in, don't change the packet
 		 * and if we're not changing anything, just accept it anyways */
@@ -248,16 +247,16 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 		/* If the acknowledgement table doesn't have an entry for the source IP
 		 * create an entry and store it in both the sequence and acknowledgement table 
-		 * with a default offset of 0 */
-		if (!getVal(seqTable, saddr)) {
-			t.ip = saddr;
+		 * with a default offset of 0. */
+		if (!getVal(seqTable, sourceKey)) {
+			t.ip = sourceKey;
 			t.offset = 0;
 			storeVal(ackTable, t);
 			storeVal(seqTable, t);
 		}
 		/* Same as the the above statement except for the destination IP */
-		if (!getVal(ackTable, daddr)) {
-			t.ip = daddr;
+		if (!getVal(ackTable, destKey)) {
+			t.ip = destKey;
 			t.offset = 0;
 			storeVal(ackTable, t);
 			storeVal(seqTable, t);
@@ -265,22 +264,17 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 		if (strstr(payload, "hhh")) { //Change condition to whatever
 			printk("NETFILTER.C: Inject a packet\n");
-			injectNewPacket(skb, saddr, daddr, state);
-//			user_data = (unsigned char *)((unsigned char *)tcp_hdr(nskb) + tcp_hdr(nskb)->doff * 4);
-//			memcpy(user_data, "ZZZ", 3);
-//			printk("NETFILTER.C: okfn return: %d\n", state->okfn(dev_net(skb->dev), NULL, skb_copy(skb, GFP_ATOMIC)));
-//			nskb = skb_copy(skb, GFP_ATOMIC);
-//			state->okfn(dev_net(skb->dev), NULL, nskb);
+			injectNewPacket(skb, sourceKey, destKey, state);
 		}
 
 		/* Change sequence number from network to host, add offset, back to network */
 		seq = ntohl(tcph->seq);
-		seq += getVal(seqTable, saddr)->offset;
+		seq += getVal(seqTable, sourceKey)->offset;
 		tcph->seq = htonl(seq);
 		
 		/* Change acknowledgement number from network to host, add offset, back to network */
 		ack = ntohl(tcph->ack_seq);
-		ack += getVal(ackTable, saddr)->offset;
+		ack += getVal(ackTable, sourceKey)->offset;
 		tcph->ack_seq = htonl(ack);
 
 		/* If the length of the outgoing packet is different from the original payload
@@ -292,12 +286,22 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 		 * So add the new difference to the offset for all future packets */
 		if (strlen(payload) != lenOrig) {
 			offset = strlen(payload)-lenOrig;
-			t.ip = saddr;
-			t.offset = getVal(seqTable, saddr)->offset + offset;
+			t.ip = sourceKey;
+			t.offset = getVal(seqTable, sourceKey)->offset + offset;
 			storeVal(seqTable, t);
-			t.ip = daddr;
-			t.offset = getVal(ackTable, daddr)->offset - offset;
+			t.ip = destKey;
+			t.offset = getVal(ackTable, destKey)->offset - offset;
 			storeVal(ackTable, t);
+		}
+
+		/* In order for future connections to be able to be setup
+		 * clear the table entry (set it to 0) and future connections
+		 * will work */
+		if (tcph->fin) {
+			t.ip = sourceKey;
+			t.offset = 0;
+			storeVal(ackTable, t);
+			storeVal(seqTable, t);
 		}
 
 		/* Change the size of the skb so that it allows for larger payloads
@@ -351,7 +355,6 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 
 	/* Filter for only the IP addresses we are interested in */
 	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
-//		printk("NETFILTER.C: Skb mark: %d\n", skb->mark);
 		/* Loop through the skb payload and print it */
 		//printk("NETFILTER.C: OUTGOING PACKET DATA: ");
 		lenOrig = 0;
