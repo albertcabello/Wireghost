@@ -121,12 +121,12 @@ void fixChecksums(struct sk_buff * skb) {
 
 }
 
-int injectNewPacket(struct sk_buff *orig, unsigned char *sourceKey, unsigned char *destKey, const struct nf_hook_state *state) {
+int injectNewPacket(struct sk_buff *orig, unsigned char *sourceKey, unsigned char *destKey, 
+		    const struct nf_hook_state *state, char *message) {
 	struct entry t;
 	struct sk_buff *skb;
 	struct tcphdr *ntcph;
 	unsigned char *user_data;
-	char * message = "ZZZ";
 	uint32_t seq, ack;
 	int offset;
 
@@ -264,7 +264,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 		if (strstr(payload, "hhh")) { //Change condition to whatever
 			printk("NETFILTER.C: Inject a packet\n");
-			injectNewPacket(skb, sourceKey, destKey, state);
+			injectNewPacket(skb, sourceKey, destKey, state, "ZZZ");
 		}
 
 		/* Change sequence number from network to host, add offset, back to network */
