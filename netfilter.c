@@ -12,18 +12,34 @@
 
 #define MAX_KEY_LENGTH 400
 #define MAX_REPLACEMENT_LENGTH 400
+#define MAX_INJECTION_STRING_LENGTH 1500
+#define MAX_INJECTION_QUEUE_SIZE 100
+#define MAX_MANGLE_SIZE 10
+#define BITECOIN 17
 
 // Parameters to be passed to the module
 static char keyToReplace[MAX_KEY_LENGTH];
 static char replacementForKey[MAX_REPLACEMENT_LENGTH];
+static char injectionString[MAX_INJECTION_STRING_LENGTH];
 
 //Parameter declarations, rw-r--r-- permissions
 module_param_string(keyToReplace, keyToReplace, MAX_KEY_LENGTH, 0644);
 module_param_string(replacementForKey, replacementForKey, MAX_REPLACEMENT_LENGTH, 0644);
+module_param_string(injectionString, injectionString, MAX_INJECTION_STRING_LENGTH, 0644);
 
 //Sequence and acknowledgement tables
 entry* seqTable[HASH_TABLE_SIZE];
 entry* ackTable[HASH_TABLE_SIZE];
+
+
+//Injection queue
+int injectionQueueSize = 0;
+char *injectionQueue[MAX_INJECTION_QUEUE_SIZE] = {NULL};
+
+//Mangle keys array
+int mangleSize = 0;
+char *mangleKeys[MAX_MANGLE_SIZE] = {NULL};
+char *mangleValues[MAX_MANGLE_SIZE] = {NULL};
 
 static struct nf_hook_ops netfilter_ops_in; //NF_INET_PRE_ROUTING
 static struct nf_hook_ops netfilter_ops_out; //NF_INET_POST_ROUTING
@@ -34,16 +50,23 @@ static struct ctl_table wireghost_table[] = {
 	{
 		.procname	= "key",
 		.data		= &keyToReplace,
-		.maxlen		= 400,
+		.maxlen		= MAX_KEY_LENGTH,
 		.mode 		= 0644,
 		.proc_handler 	= proc_dostring
 	},
 	{
 		.procname 	= "replacement",
 		.data		= &replacementForKey,
-		.maxlen		= 400,
+		.maxlen		= MAX_REPLACEMENT_LENGTH,
 		.mode		= 0644,
 		.proc_handler 	= proc_dostring
+	},
+	{
+		.procname	= "inject",
+		.data 		= &injectionString,
+		.maxlen		= MAX_INJECTION_STRING_LENGTH,
+		.mode		= 0644,
+		.proc_handler	= proc_dostring
 	},
 	{}
 };
@@ -70,6 +93,99 @@ static struct ctl_table wireghost_root_table[] = {
 
 static struct ctl_table_header *wireghost_table_header;
 //End of sysctl structures
+
+
+int wireghost_nl_go(char *command) {
+	char *delim = strchr(command+2, ':');
+	if (command[0] == 'i') {
+		//Safeguard overflowing the array
+		if (injectionQueueSize > MAX_INJECTION_QUEUE_SIZE - 1) {
+			return -1;
+		}
+		else {
+			//Add to injection queue the thing to inject which starts at the third character to the end
+			injectionQueue[injectionQueueSize] = kmalloc(1000, GFP_KERNEL);
+			strcpy(injectionQueue[injectionQueueSize], command+2);
+			injectionQueueSize++;
+			return 1;
+		}
+	}
+	if (command[0] == 'm') {
+		//Safeguard overflowing the array
+		if (mangleSize > MAX_MANGLE_SIZE - 1) {
+			return -2;
+		}
+		else {
+			//Add to the mangle "dictionary"
+			mangleKeys[mangleSize] = kmalloc(1000, GFP_KERNEL);
+			strncpy(mangleKeys[mangleSize], command+2, delim-(command+2));
+//			printk("NETFILTER.C: Adding to mangle keys %s, mangleSize is now %d\n", mangleKeys[mangleSize], mangleSize);
+			mangleValues[mangleSize] = kmalloc(1000, GFP_KERNEL);
+			strcpy(mangleValues[mangleSize], delim+1);
+//			printk("NETFILTER.C: Adding to mangle values %s, mangleSize is %d\n", mangleValues[mangleSize], mangleSize);
+			mangleSize++;
+			return 2;
+		}
+	}
+
+	return 1;
+}
+
+//Begin netlink socket functions and structures
+struct sock *nl_sk = NULL;
+void wireghost_nl_recv_msg(struct sk_buff *skb) {
+	struct nlmsghdr *nlh;	
+	int pid;
+	struct sk_buff *skb_out;
+	int msg_size;
+	char msg[500];
+	int res;
+	int parseResult = 0;
+
+	
+	nlh = (struct nlmsghdr *)skb->data;
+//	printk("NETFILTER.C: Netlink message received payload: %s\n", (char *)NLMSG_DATA(nlh));
+	//Parse userspace input
+	parseResult = wireghost_nl_go(NLMSG_DATA(nlh));
+	if (parseResult < 0) {
+		if (parseResult == -1) {
+			strcpy(msg, "Injection queue overflowed, nothing was added so this will never be injected, please wait for the queue to empty\n");
+		}
+		if (parseResult == -2) {
+			strcpy(msg, "No more space in the mangling dictionary, update will not take place\n");
+		}
+	}
+	else {
+		if (parseResult == 1) {
+			strcpy(msg, "Injection Successful\n");
+		}
+		if (parseResult == 2) {
+			strcpy(msg, "Mangle trigger added\n");
+		}
+	}
+	msg_size = strlen(msg);
+	//Send userspace confirmation
+	pid = nlh->nlmsg_pid;
+
+	skb_out = nlmsg_new(msg_size, 0);
+	if (!skb_out) {
+		printk("Failed to allocate new SKB\n");
+		return;
+	}
+	nlh = nlmsg_put(skb_out, 0, 0, NLMSG_DONE, msg_size, 0);
+	NETLINK_CB(skb_out).dst_group = 0;
+	strcpy(NLMSG_DATA(nlh), msg);
+	res = nlmsg_unicast(nl_sk, skb_out, pid);
+
+	if (res < 0) {
+		printk("NETFILTER.C: Error sending back the netlink socket to userspace\n");
+	}
+
+}
+		
+		
+
+
 
 //Support function, converts IP addresses to intgers
 static inline int ipToInt(int a, int b, int c, int d) {
@@ -225,8 +341,13 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	tail = skb_tail_pointer(skb);
 	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
 
+	if (skb->mark == 1510) {
+		printk("Got an inject me packet!");
+		return NF_DROP;
+	}
 	/* Filter all IP's except those we are interested in */
 	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
+		printk("NETFILTER.C: Mark: %d\n", skb->mark);
 		/* Loops through the skb payload and stores it in char * payload */
 		lenOrig = 0;
 		for (it = user_data; it != tail; ++it) {
@@ -264,7 +385,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 		if (strstr(payload, "hhh")) { //Change condition to whatever
 			printk("NETFILTER.C: Inject a packet\n");
-			injectNewPacket(skb, sourceKey, destKey, state, "ZZZ");
+			injectNewPacket(skb, sourceKey, destKey, state, injectionString);
 		}
 
 		/* Change sequence number from network to host, add offset, back to network */
@@ -356,7 +477,6 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 	/* Filter for only the IP addresses we are interested in */
 	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
 		/* Loop through the skb payload and print it */
-		//printk("NETFILTER.C: OUTGOING PACKET DATA: ");
 		lenOrig = 0;
 		for (it = user_data; it != tail; ++it) {
 			char c = *(char *)it;
@@ -364,16 +484,21 @@ unsigned int out_hook(void *priv, struct sk_buff * skb, const struct nf_hook_sta
 			lenOrig++;
 		}
 		payload[lenOrig] = '\0';
+		printk("NETFILTER.C: OUTGOING PACKET DATA: %s MARK: %d\n", payload, skb->mark);
+
 	}
 	return NF_ACCEPT; //Let packets go through
 }
 
 int init_module() {
+	struct netlink_kernel_cfg cfg = {
+		.input = wireghost_nl_recv_msg,
+	};
 	printk("NETFILTER.C: Installing module wireghost\n");
 	netfilter_ops_in.hook = in_hook;
 	netfilter_ops_in.pf = PF_INET;
 	netfilter_ops_in.hooknum = NF_INET_PRE_ROUTING;
-	netfilter_ops_in.priority = NF_IP_PRI_FIRST;
+	netfilter_ops_in.priority = NF_IP_PRI_LAST;
 
 	netfilter_ops_out.hook = out_hook;
 	netfilter_ops_out.pf = PF_INET;
@@ -381,20 +506,31 @@ int init_module() {
 	netfilter_ops_out.priority = NF_IP_PRI_FIRST;
 
 	nf_register_hook(&netfilter_ops_in);
-	nf_register_hook(&netfilter_ops_out);
+//	Uncomment this to regist the post routing hook
+//	nf_register_hook(&netfilter_ops_out);
 	
+	//Start socket
+	nl_sk = netlink_kernel_create(&init_net, BITECOIN, &cfg);
+	if (!nl_sk) {
+		printk("Error creating socket, no wireghost for you\n");
+		return -10;
+	}
+	//Socket started
+
 	wireghost_table_header = register_sysctl_table(wireghost_root_table);
 	if (!wireghost_table_header) {
 		return -ENOMEM;
 	}
-
 	return 0;
 }
 
 void cleanup_module() {
 	nf_unregister_hook(&netfilter_ops_in);
-	nf_unregister_hook(&netfilter_ops_out);
+//	Uncomment this if you have the post routing hook
+//	nf_unregister_hook(&netfilter_ops_out);
 
+	//Release socket
+	netlink_kernel_release(nl_sk);
 	unregister_sysctl_table(wireghost_table_header);
 }
 
