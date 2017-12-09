@@ -13,19 +13,9 @@
 #define MAX_KEY_LENGTH 400
 #define MAX_REPLACEMENT_LENGTH 400
 #define MAX_INJECTION_STRING_LENGTH 1500
-#define MAX_INJECTION_QUEUE_SIZE 100
+#define MAX_INJECTION_STACK_SIZE 100
 #define MAX_MANGLE_SIZE 10
 #define BITECOIN 17
-
-// Parameters to be passed to the module
-static char keyToReplace[MAX_KEY_LENGTH];
-static char replacementForKey[MAX_REPLACEMENT_LENGTH];
-static char injectionString[MAX_INJECTION_STRING_LENGTH];
-
-//Parameter declarations, rw-r--r-- permissions
-module_param_string(keyToReplace, keyToReplace, MAX_KEY_LENGTH, 0644);
-module_param_string(replacementForKey, replacementForKey, MAX_REPLACEMENT_LENGTH, 0644);
-module_param_string(injectionString, injectionString, MAX_INJECTION_STRING_LENGTH, 0644);
 
 //Sequence and acknowledgement tables
 entry* seqTable[HASH_TABLE_SIZE];
@@ -33,8 +23,8 @@ entry* ackTable[HASH_TABLE_SIZE];
 
 
 //Injection queue
-int injectionQueueSize = 0;
-char *injectionQueue[MAX_INJECTION_QUEUE_SIZE] = {NULL};
+int injectionStackSize = 0;
+char *injectionStack[MAX_INJECTION_STACK_SIZE] = {NULL};
 
 //Mangle keys array
 int mangleSize = 0;
@@ -44,69 +34,19 @@ char *mangleValues[MAX_MANGLE_SIZE] = {NULL};
 static struct nf_hook_ops netfilter_ops_in; //NF_INET_PRE_ROUTING
 static struct nf_hook_ops netfilter_ops_out; //NF_INET_POST_ROUTING
 
-//Sysctl support structures
-//Leaf nodes in wireghost directory
-static struct ctl_table wireghost_table[] = {
-	{
-		.procname	= "key",
-		.data		= &keyToReplace,
-		.maxlen		= MAX_KEY_LENGTH,
-		.mode 		= 0644,
-		.proc_handler 	= proc_dostring
-	},
-	{
-		.procname 	= "replacement",
-		.data		= &replacementForKey,
-		.maxlen		= MAX_REPLACEMENT_LENGTH,
-		.mode		= 0644,
-		.proc_handler 	= proc_dostring
-	},
-	{
-		.procname	= "inject",
-		.data 		= &injectionString,
-		.maxlen		= MAX_INJECTION_STRING_LENGTH,
-		.mode		= 0644,
-		.proc_handler	= proc_dostring
-	},
-	{}
-};
-
-//Create wireghost directory with above leaf nodes
-static struct ctl_table wireghost_dir_table[] = {
-	{
-		.procname	= "wireghost",
-		.mode 		= 0555,
-		.child		= wireghost_table
-	},
-	{}
-};
-
-//Create wireghost directory under /proc/sys/net
-static struct ctl_table wireghost_root_table[] = {
-	{
-		.procname	= "net",
-		.mode		= 0555,
-		.child		= wireghost_dir_table
-	},
-	{}
-};
-
-static struct ctl_table_header *wireghost_table_header;
-//End of sysctl structures
-
 
 int wireghost_nl_go(char *command) {
 	char *delim = strchr(command+2, ':');
 	if (command[0] == 'i') {
 		//Safeguard overflowing the array
-		if (injectionQueueSize > MAX_INJECTION_QUEUE_SIZE - 1) {
+		if (injectionStackSize > MAX_INJECTION_STACK_SIZE - 1) {
 			return -1;
 		}
 		else {
 			//Add to injection queue the thing to inject which starts at the third character to the end
-			injectionQueue[injectionQueueSize] = kmalloc(1000, GFP_KERNEL);
-			strcpy(injectionQueue[injectionQueueSize], command+2);
-			injectionQueueSize++;
+			injectionStack[injectionStackSize] = kmalloc(1000, GFP_KERNEL);
+			strcpy(injectionStack[injectionStackSize], command+2);
+			injectionStackSize++;
 			return 1;
 		}
 	}
@@ -382,10 +322,18 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 			storeVal(seqTable, t);
 		}
 
-		if (strstr(payload, "hhh")) { //Change condition to whatever
+		while (injectionStackSize) { //Change condition to whatever
 			printk("NETFILTER.C: Inject a packet\n");
-			injectNewPacket(skb, sourceKey, destKey, state, injectionString);
+			injectNewPacket(skb, sourceKey, destKey, state, injectionStack[injectionStackSize-1]);
+			injectionStack[injectionStackSize-1] = NULL;
+			injectionStackSize--;
 		}
+//		while (injectionStackSize) {
+//			printk("NETFILTER.C: Injection Stack isn't empty, size is %d\n", injectionStackSize);
+//			printk("NETFILTER.C: Injecting %s\n", injectionStack[injectionStackSize-1]);
+//			injectNewPacket(skb, sourceKey, destKey, state, injectionStack[injectionStackSize-1]);
+//			break;
+//		}
 
 		/* Change sequence number from network to host, add offset, back to network */
 		seq = ntohl(tcph->seq);
@@ -516,10 +464,6 @@ int init_module() {
 	}
 	//Socket started
 
-	wireghost_table_header = register_sysctl_table(wireghost_root_table);
-	if (!wireghost_table_header) {
-		return -ENOMEM;
-	}
 	return 0;
 }
 
@@ -530,7 +474,7 @@ void cleanup_module() {
 
 	//Release socket
 	netlink_kernel_release(nl_sk);
-	unregister_sysctl_table(wireghost_table_header);
+
 }
 
 
