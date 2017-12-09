@@ -119,10 +119,9 @@ int wireghost_nl_go(char *command) {
 			//Add to the mangle "dictionary"
 			mangleKeys[mangleSize] = kmalloc(1000, GFP_KERNEL);
 			strncpy(mangleKeys[mangleSize], command+2, delim-(command+2));
-//			printk("NETFILTER.C: Adding to mangle keys %s, mangleSize is now %d\n", mangleKeys[mangleSize], mangleSize);
+			mangleKeys[mangleSize][delim-(command+2)] = '\0';
 			mangleValues[mangleSize] = kmalloc(1000, GFP_KERNEL);
 			strcpy(mangleValues[mangleSize], delim+1);
-//			printk("NETFILTER.C: Adding to mangle values %s, mangleSize is %d\n", mangleValues[mangleSize], mangleSize);
 			mangleSize++;
 			return 2;
 		}
@@ -303,7 +302,7 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	char *payload;
 	/* Length of original payload, length of tcp header, number of replacements done to payload
 	 * the sequence and acknowledgement offsets, multipurpose iterator (for loops, while, etc) */
-	int lenOrig, replacements, offset;
+	int lenOrig, replacements, offset, i;
 	/* Source port, destination port and the ip header length */
 	__u16 sport, dport, ip_len;
 	/* Source IP address and destination IP address */
@@ -319,10 +318,6 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	if (!skb)
 		return NF_ACCEPT;
 	
-	if (iph->protocol == IPPROTO_ICMP) {
-		printk("NETFILTER.C: Ping packet incoming\n");
-	}
-
 
 	/* Convert the source IP address (saddr), source port (sport), 
 	   destination IP address (daddr), and destination port (dport)
@@ -341,13 +336,8 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 	tail = skb_tail_pointer(skb);
 	user_data = (unsigned char *)((unsigned char *)tcph + (tcph->doff * 4));
 
-	if (skb->mark == 1510) {
-		printk("Got an inject me packet!");
-		return NF_DROP;
-	}
 	/* Filter all IP's except those we are interested in */
 	if(saddr == ipToInt(10,0,2,12) || saddr == ipToInt(10,0,2,13)) {
-		printk("NETFILTER.C: Mark: %d\n", skb->mark);
 		/* Loops through the skb payload and stores it in char * payload */
 		lenOrig = 0;
 		for (it = user_data; it != tail; ++it) {
@@ -359,12 +349,21 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 		/* If keyToReplace or replacementForKey weren't passed in, don't change the packet
 		 * and if we're not changing anything, just accept it anyways */
-		if (!strlen(keyToReplace) || !strlen(replacementForKey)) {
-			return NF_ACCEPT;
+//		if (!strlen(keyToReplace) || !strlen(replacementForKey)) {
+//			return NF_ACCEPT;
+//		}
+
+		/* Check if payload matches any mangle key */
+		for (i = 0; i < mangleSize; i++) {
+			printk("NETFILTER.C: Checkinf if match with %s\n", mangleKeys[i]);
+			if (strstr(payload, mangleKeys[i]) != NULL) {
+				printk("NETFILTER.C: Mangling the packet with the match %s\n", mangleKeys[i]);
+				replacements = payloadFind(payload, mangleKeys[i], mangleValues[i]);
+			}
 		}
-		
+
 		/* Change the payload data stored in char * payload */
-		replacements = payloadFind(payload, keyToReplace, replacementForKey);
+//		replacements = payloadFind(payload, keyToReplace, replacementForKey);
 
 		/* If the acknowledgement table doesn't have an entry for the source IP
 		 * create an entry and store it in both the sequence and acknowledgement table 
