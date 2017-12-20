@@ -76,7 +76,7 @@ int main() {
 		firstarg = malloc(MAX_PAYLOAD);
 		secondarg = malloc(MAX_PAYLOAD);
 		while (!inputTaken) {
-			printf("What would you like to do (inject/mangle)?\n");
+			printf("What would you like to do (inject/mangle/clear)?\n");
 			input[getline(&input, &maxInputLen, stdin) - 1] = '\0';
 			//Injection if statement
 			if (!strcmp(input, "inject") || !strcmp(input, "i") || !strcmp(input, "I")) {
@@ -97,6 +97,14 @@ int main() {
 				input[getline(&input, &maxInputLen, stdin) - 1] = '\0';
 				strcpy(secondarg, input);
 				sprintf(msgToSend, "%s:%s:%s", command, firstarg, secondarg);
+				inputTaken = 1;
+			}
+			else if (!strcmp(input, "clear") || !strcmp(input, "c") || !strcmp(input, "C")) {
+				strcpy(command, "c");
+				printf("Would you like to clear the mangle dictionary or the injection stack?\n");
+				input[getline(&input, &maxInputLen, stdin)-1] = '\0';
+				strcpy(firstarg, input);
+				sprintf(msgToSend, "%s:%s", command, firstarg);
 				inputTaken = 1;
 			}
 			else {

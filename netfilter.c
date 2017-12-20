@@ -46,6 +46,8 @@ int wireghost_nl_go(char *command) {
 			//Add to injection queue the thing to inject which starts at the third character to the end
 			injectionStack[injectionStackSize] = kmalloc(1000, GFP_KERNEL);
 			strcpy(injectionStack[injectionStackSize], command+2);
+			//Ask how they want this, does every injected packet send new line?
+			strcat(injectionStack[injectionStackSize], "\n");
 			injectionStackSize++;
 			return 1;
 		}
@@ -64,6 +66,26 @@ int wireghost_nl_go(char *command) {
 			strcpy(mangleValues[mangleSize], delim+1);
 			mangleSize++;
 			return 2;
+		}
+	}
+	if (command[0] == 'c') {
+		if (command[2] == 'i') { //Clear injection stack
+			while (injectionStackSize) {
+				kfree(injectionStack[injectionStackSize-1]);
+				injectionStack[injectionStackSize-1] = NULL;
+				injectionStackSize--;
+			}
+			return 3;
+		}
+		if (command[2] == 'm') { //Clear mangle dictionary
+			while(mangleSize) {
+				kfree(mangleKeys[mangleSize-1]);
+				mangleKeys[mangleSize-1] = NULL;
+				kfree(mangleValues[mangleSize-1]);
+				mangleValues[mangleSize-1] = NULL;
+				mangleSize--;
+			}
+			return 4;
 		}
 	}
 
@@ -100,6 +122,12 @@ void wireghost_nl_recv_msg(struct sk_buff *skb) {
 		}
 		if (parseResult == 2) {
 			strcpy(msg, "Mangle trigger added\n");
+		}
+		if (parseResult == 3) {
+			strcpy(msg, "Injection stack cleared\n");
+		}
+		if (parseResult == 4) {
+			strcpy(msg, "Mangling dictionary cleared\n");
 		}
 	}
 	msg_size = strlen(msg);
@@ -177,13 +205,15 @@ void fixChecksums(struct sk_buff * skb) {
 }
 
 int injectNewPacket(struct sk_buff *orig, unsigned char *sourceKey, unsigned char *destKey, 
-		    const struct nf_hook_state *state, char *message) {
+		    const struct nf_hook_state *state, char *message, int lenOrig) {
 	struct entry t;
 	struct sk_buff *skb;
 	struct tcphdr *ntcph;
+	struct iphdr *iph;
 	unsigned char *user_data;
 	uint32_t seq, ack;
 	int offset;
+	__u16 ip_len;
 
 
 	/* Allocate a socket buffer and assign it to be a copy of the
@@ -210,6 +240,23 @@ int injectNewPacket(struct sk_buff *orig, unsigned char *sourceKey, unsigned cha
 	if(pskb_expand_head(skb, 0, strlen(message)-skb_tailroom(skb), GFP_ATOMIC)) {
 		return -ENOMEM;
 	}
+	
+	//Refresh tcp header after expand
+	ntcph = tcp_hdr(skb);
+	iph = ip_hdr(skb);
+
+	/* Reserve space in the skb for the data */
+	/* THIS BREAKS IF THE PAYLOAD IS NOT ASCII */
+	skb_put(skb, strlen(message)-lenOrig);
+
+	/* memcpy into user_data the modified payload */
+	user_data = (unsigned char *)((unsigned char *)ntcph + (ntcph->doff * 4));
+	memcpy(user_data, message, strlen(message));
+
+	/* Convert the ip length from the network, change it to the new length, back to network */
+	ip_len = ntohs(iph->tot_len);
+	ip_len += strlen(message)-lenOrig;
+	iph->tot_len = htons(ip_len);
 
 	ntcph = tcp_hdr(skb);
 	user_data = (unsigned char *)((unsigned char *)ntcph + (ntcph->doff * 4));
@@ -324,16 +371,11 @@ unsigned int in_hook(void *priv, struct sk_buff * skb, const struct nf_hook_stat
 
 		while (injectionStackSize) { //Change condition to whatever
 			printk("NETFILTER.C: Inject a packet\n");
-			injectNewPacket(skb, sourceKey, destKey, state, injectionStack[injectionStackSize-1]);
+			injectNewPacket(skb, sourceKey, destKey, state, injectionStack[injectionStackSize-1], lenOrig);
+			kfree(injectionStack[injectionStackSize-1]);
 			injectionStack[injectionStackSize-1] = NULL;
 			injectionStackSize--;
 		}
-//		while (injectionStackSize) {
-//			printk("NETFILTER.C: Injection Stack isn't empty, size is %d\n", injectionStackSize);
-//			printk("NETFILTER.C: Injecting %s\n", injectionStack[injectionStackSize-1]);
-//			injectNewPacket(skb, sourceKey, destKey, state, injectionStack[injectionStackSize-1]);
-//			break;
-//		}
 
 		/* Change sequence number from network to host, add offset, back to network */
 		seq = ntohl(tcph->seq);
